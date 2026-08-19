@@ -110,8 +110,8 @@ public class TimeCodeExporter : IExporter
         {
             0x00 => 24f,
             0x20 => 25f,
-            0x40 => 30f,
-            0x60 => 29.97f,
+            0x40 => 29.97f,
+            0x60 => 30f,
             _ => 30f,//assume 30 I guess, this should never happen
         };
         //convert the timecode to a TimeSpan
