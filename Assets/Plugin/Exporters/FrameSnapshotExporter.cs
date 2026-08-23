@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,6 +14,7 @@ public class CommandPacket
     public CommandType command;
     public int frame_number;
     public string file_path;
+    public int response_port;
 }
 
 public enum CommandType
@@ -20,10 +22,20 @@ public enum CommandType
     save_frame,
 }
 
+[System.Serializable]
+public class FrameRenderResponse
+{
+    public int frame_number;
+    public string file_path;
+    public string status;
+    public string error;
+}
+
 public class FrameSnapshotExporter : IExporter
 {
     private bool imageSaveQueued = false;
     private CommandPacket latestCommandPacket;
+    private IPEndPoint latestResponseEndpoint;
     private UdpClient _udpClient;
     private CancellationTokenSource _cts;
 
@@ -50,7 +62,7 @@ public class FrameSnapshotExporter : IExporter
                 string receivedMessage = System.Text.Encoding.UTF8.GetString(receivedBytes.Buffer);
 
                 // Trigger the event
-                PacketReceived(receivedMessage);
+                PacketReceived(receivedMessage, receivedBytes.RemoteEndPoint);
             }
             catch (SocketException ex)
             {
@@ -64,7 +76,7 @@ public class FrameSnapshotExporter : IExporter
         }
     }
 
-    private void PacketReceived(string message)
+    private void PacketReceived(string message, IPEndPoint remoteEndPoint)
     {
         try
         {
@@ -74,6 +86,7 @@ public class FrameSnapshotExporter : IExporter
             if (packet.command == CommandType.save_frame)
             {
                 imageSaveQueued = true;
+                latestResponseEndpoint = remoteEndPoint;
             }
 
             latestCommandPacket = packet;
@@ -81,6 +94,36 @@ public class FrameSnapshotExporter : IExporter
         catch (Exception ex)
         {
             Debug.LogError($"Failed to parse JSON packet: {ex.Message}");
+        }
+    }
+
+    private void SendResponse(string status, string error = null)
+    {
+        if (latestCommandPacket == null || latestCommandPacket.response_port <= 0 || latestResponseEndpoint == null)
+        {
+            return;
+        }
+
+        FrameRenderResponse response = new FrameRenderResponse
+        {
+            frame_number = latestCommandPacket.frame_number,
+            file_path = latestCommandPacket.file_path,
+            status = status,
+            error = error,
+        };
+
+        byte[] payload = System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(response));
+
+        try
+        {
+            using (UdpClient responseClient = new UdpClient())
+            {
+                responseClient.Send(payload, payload.Length, new IPEndPoint(latestResponseEndpoint.Address, latestCommandPacket.response_port));
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Failed to send frame response: {ex.Message}");
         }
     }
 
@@ -96,24 +139,35 @@ public class FrameSnapshotExporter : IExporter
             return; // No save requested
         }
 
-        if (texture == null)
+        try
         {
-            Debug.LogError("Texture is null. Cannot save frame.");
-            return;
-        }
+            if (texture == null)
+            {
+                throw new InvalidOperationException("Texture is null. Cannot save frame.");
+            }
 
-        // Save the texture to a PNG file
-        byte[] bytes = texture.EncodeToPNG();
-        // Ensure the directory exists
-        string directory = System.IO.Path.GetDirectoryName(latestCommandPacket.file_path);
-        if (!System.IO.Directory.Exists(directory))
+            // Save the texture to a PNG file
+            byte[] bytes = texture.EncodeToPNG();
+            // Ensure the directory exists
+            string directory = System.IO.Path.GetDirectoryName(latestCommandPacket.file_path);
+            if (!System.IO.Directory.Exists(directory))
+            {
+                System.IO.Directory.CreateDirectory(directory);
+            }
+            System.IO.File.WriteAllBytes(latestCommandPacket.file_path, bytes);
+            // Debug.Log($"Frame {latestCommandPacket.frame_number} saved to {latestCommandPacket.file_path}");
+
+            SendResponse("saved");
+        }
+        catch (Exception ex)
         {
-            System.IO.Directory.CreateDirectory(directory);
+            Debug.LogError(ex.Message);
+            SendResponse("failed", ex.Message);
         }
-        System.IO.File.WriteAllBytes(latestCommandPacket.file_path, bytes);
-        // Debug.Log($"Frame {latestCommandPacket.frame_number} saved to {latestCommandPacket.file_path}");
-
-        imageSaveQueued = false;
+        finally
+        {
+            imageSaveQueued = false;
+        }
     }
     public void SerializeChannel(byte channelValue, int channel) {}
     public void ConstructUserInterface(RectTransform rect)
