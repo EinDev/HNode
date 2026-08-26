@@ -71,7 +71,7 @@ public class TextureWriter : MonoBehaviour
         Profiler.BeginSample("DMX Merge");
         //clear the merged dmx values list
         mergedDmxValues.Clear();
-        if (Loader.showconf.Transcode)
+        if (Loader.showconf.Transcode && !Loader.showconf.MergeTranscode)
         {
             mergedDmxValues = reader.dmxData.ToList();
         }
@@ -94,6 +94,25 @@ public class TextureWriter : MonoBehaviour
 
                 byte[] dmxValues = dmxManager.DmxValues(u);
                 mergedDmxValues.AddRange(dmxValues);
+            }
+        }
+
+        if (Loader.showconf.Transcode && Loader.showconf.MergeTranscode)
+        {
+            //bring in the values from the reader, then merge based on highest takes priority
+            List<byte> transcodedValues = reader.dmxData.ToList();
+            for (int i = 0; i < Math.Max(transcodedValues.Count, mergedDmxValues.Count); i++)
+            {
+                //check if both have a value at this index, if so, take the max of the two
+                if (i < transcodedValues.Count && i < mergedDmxValues.Count)
+                {
+                    mergedDmxValues[i] = Math.Max(transcodedValues[i], mergedDmxValues[i]);
+                }
+                else if (i < transcodedValues.Count)
+                {
+                    //if only the transcoded values has a value, add it to the merged list
+                    mergedDmxValues.Add(transcodedValues[i]);
+                }
             }
         }
 
