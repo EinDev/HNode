@@ -15,7 +15,10 @@ The Unity project (everything outside `native/`) is untouched and still builds/w
 as before. This is an additional, independent app living alongside it.
 
 ## What's implemented
-- ArtNet DMX receive over UDP (`src/artnet`), configurable address/port
+- ArtNet DMX receive over UDP (`src/artnet`), configurable address/port, plus
+  auto-discovery: answers `ArtPoll` with a real `ArtPollReply` (unicast) so consoles
+  like QLC+ find HNode on the network without typing in its IP - new behavior, not a
+  port (neither the Unity app nor the ArtNet-Unity library it depends on does this)
 - Per-universe DMX buffer + merge (`src/dmx`)
 - Channel masking (`maskedChannels` / `invertMask` / `autoMaskOnZero`)
 - All 7 serializers (`src/serializers`), selectable at runtime via `ISerializer` +
@@ -26,9 +29,10 @@ as before. This is an additional, independent app living alongside it.
   Fade, Strobe, DMXPacket, Text, Time. Animated generators (Fade/Strobe/Time) keep the
   render-on-change loop ticking at `targetFramerate` while active instead of freezing
   when ArtNet goes idle - see `IGenerator.h`.
-- 2 of the 4 exporters (`src/exporters`), as a dynamic add/remove list via `IExporter`
-  + `ExporterRegistry`: MIDIDMX (VRC-MIDIDMX protocol over winmm, replacing DryWetMidi)
-  and TextFileExporter
+- 3 of the 4 exporters (`src/exporters`), as a dynamic add/remove list via `IExporter`
+  + `ExporterRegistry`: MIDIDMX (VRC-MIDIDMX protocol over winmm, replacing DryWetMidi),
+  TextFileExporter, and FrameSnapshotExporter (UDP JSON command -> PNG snapshot via
+  vendored stb_image_write, JSON responses via nlohmann-json)
 - CPU pixel buffer -> GL preview texture (`src/render`)
 - Spout2 output, using the vendored SDK in `third_party/Spout` (`src/spout`)
 - `.shwcfg` YAML load/save (`src/config`), field-compatible with the Unity app's
@@ -45,10 +49,9 @@ as before. This is an additional, independent app living alongside it.
 ## What's intentionally out of scope (not dropped by accident)
 - Spout **input** / deserialize (the `Transcode` path) - `DeserializeChannel` isn't
   implemented on any serializer
-- 3 generators: SRT/LRC/ASS subtitle-file playback, TwitchChat (IRC), OnTime (HTTP),
-  MAVLinkDrone (its own mini-project: FTP protocol, trajectories, show files)
-- 2 exporters: FrameSnapshotExporter (UDP command -> PNG snapshot), TimeCodeExporter
-  (MIDI Time Code input -> UDP broadcast)
+- 3 generators: TwitchChat (IRC), OnTime (HTTP), MAVLinkDrone (its own mini-project:
+  FTP protocol, trajectories, show files)
+- 1 exporter: TimeCodeExporter (MIDI Time Code input -> UDP broadcast)
 - The DMX preview/chroma-key window, stats overlay
 - FuralitySomnaSerializer's `mergedChannels` field has no UI and isn't persisted to
   YAML yet (config-only in the C# original too, just not wired up here)
