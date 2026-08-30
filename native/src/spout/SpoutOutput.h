@@ -3,8 +3,10 @@
 // SpoutSender class) - equivalent role to Klak.Spout's SpoutSender component that
 // Assets/TextureWriter.cs sends the finished frame texture through.
 //
-// Must be constructed/used only while a current OpenGL context exists (same thread
-// as the GLFW window's context), since Spout's sender uses GL/DX interop internally.
+// Must be constructed/used only while a current OpenGL context exists on the calling
+// thread, since Spout's sender uses GL/DX interop internally. As of the SpoutSendThread
+// change, that's a dedicated worker thread's context (sharing GL objects with the main
+// window's context) rather than the main thread itself - see SpoutSendThread.h.
 #include <cstdint>
 #include <string>
 

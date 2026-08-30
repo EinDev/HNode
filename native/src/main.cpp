@@ -28,6 +28,7 @@
 #include "serializers/SerializerRegistry.h"
 #include "render/FrameRenderer.h"
 #include "spout/SpoutOutput.h"
+#include "spout/SpoutSendThread.h"
 #include "exporters/ExporterRegistry.h"
 #include "generators/GeneratorRegistry.h"
 #include "config/ShowConfig.h"
@@ -95,6 +96,17 @@ int main(int argc, char** argv) {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
+    // Hidden window whose only purpose is to own a second GL context sharing objects
+    // (textures) with the main one above, so SpoutSendThread can send frames without
+    // ever needing the main thread's context - see SpoutSendThread.h for why.
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    GLFWwindow* spoutContextWindow = glfwCreateWindow(1, 1, "", nullptr, window);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    if (!spoutContextWindow) {
+        glfwTerminate();
+        return 1;
+    }
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
@@ -114,8 +126,9 @@ int main(int argc, char** argv) {
     FrameRenderer frameRenderer;
     frameRenderer.SetResolution(config.outputWidth, config.outputHeight);
 
-    SpoutOutput spoutOutput;
-    spoutOutput.SetName(config.spoutOutputName);
+    SpoutSendThread spoutSendThread;
+    spoutSendThread.Start(spoutContextWindow);
+    spoutSendThread.SetName(config.spoutOutputName);
 
     std::atomic<bool> dirty{true};
     std::atomic<bool> artNetConnected{false};
@@ -264,7 +277,7 @@ int main(int argc, char** argv) {
             appliedArtNetPort = config.artNetPort;
         }
         if (config.spoutOutputName != appliedSpoutName) {
-            spoutOutput.SetName(config.spoutOutputName);
+            spoutSendThread.SetName(config.spoutOutputName);
             artnet.SetNodeInfo("HNode", "HNode (native) - " + config.spoutOutputName);
             appliedSpoutName = config.spoutOutputName;
         }
@@ -282,8 +295,12 @@ int main(int argc, char** argv) {
                                   config.serializeUniverseCount);
             auto renderEnd = std::chrono::steady_clock::now();
 
-            spoutOutput.SendFrame(frameRenderer.TextureId(), static_cast<unsigned int>(frameRenderer.Width()),
-                                   static_cast<unsigned int>(frameRenderer.Height()));
+            // Flush before handing off to the send thread - required so its context
+            // (sharing GL objects with this one, but on another thread) is guaranteed
+            // to see the finished texture upload above. See SpoutSendThread::SubmitFrame.
+            glFlush();
+            spoutSendThread.SubmitFrame(frameRenderer.TextureId(), static_cast<unsigned int>(frameRenderer.Width()),
+                                         static_cast<unsigned int>(frameRenderer.Height()));
             for (auto& exporter : config.exporters) {
                 exporter->FrameRendered(frameRenderer.Pixels(), frameRenderer.Width(), frameRenderer.Height());
             }
@@ -352,7 +369,9 @@ int main(int argc, char** argv) {
     }
 
     artnet.Stop();
-    spoutOutput.Release();
+    // Joins the send thread (releasing its Spout sender and GL context) before the
+    // shared context window it depends on is destroyed below.
+    spoutSendThread.Stop();
     for (auto& exporter : config.exporters) exporter->Deconstruct();
     for (auto& generator : config.generators) generator->Deconstruct();
 
@@ -360,6 +379,7 @@ int main(int argc, char** argv) {
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
+    glfwDestroyWindow(spoutContextWindow);
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
