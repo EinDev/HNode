@@ -12,8 +12,74 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # Only runs when release-please just cut an actual release (i.e. its PR was merged),
+  # not on every push to main - builds the native app at that release's tag and
+  # attaches the exe/DLLs to the GitHub Release page, since release-please itself only
+  # tags + writes the changelog and doesn't know how to build anything.
+  attach-native-build:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg
+        uses: actions/cache@v5
+        with:
+          path: |
+            native/vcpkg/installed
+            native/vcpkg/downloads
+            native/vcpkg/packages
+          key: vcpkg-x64-windows-glfw3-imgui-yamlcpp-json-v2
+
+      - name: Clone vcpkg
+        run: |
+          if (-not (Test-Path "native/vcpkg/.git")) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg-tool-tmp
+            New-Item -ItemType Directory -Force -Path native/vcpkg | Out-Null
+            Copy-Item -Path vcpkg-tool-tmp\* -Destination native/vcpkg -Recurse -Force
+            Remove-Item -Recurse -Force vcpkg-tool-tmp
+          }
+        shell: pwsh
+
+      - name: Bootstrap vcpkg
+        run: native\vcpkg\bootstrap-vcpkg.bat
+        shell: cmd
+
+      - name: Install dependencies
+        run: native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp nlohmann-json --triplet x64-windows --recurse
+        shell: cmd
+
+      - name: Build
+        run: native\build.bat
+        shell: cmd
+
+      - name: Package release zip
+        run: Compress-Archive -Path native\build\HNode.exe, native\build\*.dll -DestinationPath HNode-native-windows.zip
+        shell: pwsh
+
+      - name: Attach to release
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" HNode-native-windows.zip --repo "${{ github.repository }}" --clobber
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
