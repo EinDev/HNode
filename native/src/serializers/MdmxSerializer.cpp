@@ -1,6 +1,4 @@
 // Port of Assets/Plugin/Serializers/SerializerMDMX.cs (aka "Binary Stage Flight").
-// SerializeChannel + CompleteFrame (the CRC block pass) only - DeserializeChannel
-// (Spout input / transcode CRC check) is out of scope, see native/README.md.
 #include "MdmxSerializer.h"
 #include <vector>
 #include "../render/PixelOps.h"
@@ -35,6 +33,28 @@ void MdmxSerializer::SerializeChannel(std::vector<RGBA8>& pixels, uint8_t channe
         RGBA8 color{component, component, component, alpha};
         MakeColorBlock(pixels, x, y, color, kBlockSize, textureWidth, textureHeight);
     }
+}
+
+uint8_t MdmxSerializer::DeserializeChannel(const std::vector<RGBA8>& pixels, int channel, int textureWidth,
+                                            int textureHeight) {
+    // TODO: CRC check for transcoding - matches the C# reference's own unresolved
+    // TODO comment; the CRC row CompleteFrame() writes is never read back/verified
+    // here, same as there.
+    uint8_t value = 0;
+    for (int i = 0; i < 8; ++i) {
+        int x = 0;
+        int y = 0;
+        GetPositionData(channel, i, textureWidth, x, y);
+        // Offset into the block, matching the C# reference.
+        x += 1;
+        y += 1;
+        if (x >= textureWidth || y >= textureHeight) continue;
+
+        RGBA8 color = GetPixelColor(pixels, x, y, textureWidth, textureHeight);
+        bool bit = (color.r / 255.0f) > 0.5f;
+        if (bit) value |= static_cast<uint8_t>(1u << i);
+    }
+    return value;
 }
 
 void MdmxSerializer::CompleteFrame(std::vector<RGBA8>& pixels, const std::vector<uint8_t>& channelValues,

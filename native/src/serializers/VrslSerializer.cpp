@@ -78,6 +78,40 @@ void VrslSerializer::SerializeChannel(std::vector<RGBA8>& pixels, uint8_t channe
     }
 }
 
+uint8_t VrslSerializer::DeserializeChannel(const std::vector<RGBA8>& pixels, int channel, int textureWidth,
+                                            int textureHeight) {
+    int x, y;
+    GetPositionData(channel, x, y, textureWidth, textureHeight);
+
+    // Used in vertical mode to avoid re-deserializing from the bottom when data is out
+    // of bounds - matches the C# reference exactly (comment and all).
+    if (y < -(kBlockSize / 2)) return 0;
+
+    // Offset to the block's center, matching the C# reference.
+    x += kBlockSize / 2;
+    y += kBlockSize / 2;
+
+    RGBA8 color = GetPixelColor(pixels, x, y, textureWidth, textureHeight);
+    float r = color.r / 255.0f;
+    float g = color.g / 255.0f;
+    float b = color.b / 255.0f;
+    if (gammaCorrection) {
+        r = LinearToSrgb(r);
+        g = LinearToSrgb(g);
+        b = LinearToSrgb(b);
+    }
+
+    if (rgbGridMode) {
+        switch (GetUniverseWrap(channel)) {
+            case 0: return static_cast<uint8_t>(r * 255.0f + 0.5f);
+            case 1: return static_cast<uint8_t>(g * 255.0f + 0.5f);
+            case 2: return static_cast<uint8_t>(b * 255.0f + 0.5f);
+            default: return 0; // not a valid RGB channel
+        }
+    }
+    return static_cast<uint8_t>(g * 255.0f + 0.5f);
+}
+
 const char* VrslSerializer::ToString(OutputConfig config) {
     switch (config) {
         case OutputConfig::HorizontalTop: return "HorizontalTop";

@@ -1,10 +1,9 @@
 #pragma once
 // Common interface for all DMX->pixel serializers, matching the shape of
-// Assets/Plugin/Serializers/IDMXSerializer.cs's SerializeChannel/InitFrame/CompleteFrame
-// (DeserializeChannel is intentionally omitted - Spout input/deserialize is still out
-// of scope, see native/README.md). Introduced so ShowConfig/UiPanel/FrameRenderer can
-// pick a serializer at runtime the way UIController.cs's serializer dropdown does,
-// instead of Phase 1's single hardcoded VrslSerializer.
+// Assets/Plugin/Serializers/IDMXSerializer.cs's SerializeChannel/DeserializeChannel/
+// InitFrame/CompleteFrame. Introduced so ShowConfig/UiPanel/FrameRenderer can pick a
+// serializer at runtime the way UIController.cs's serializer dropdown does, instead of
+// Phase 1's single hardcoded VrslSerializer.
 #include <cstdint>
 #include <vector>
 #include "../render/PixelOps.h"
@@ -26,6 +25,21 @@ public:
 
     virtual void SerializeChannel(std::vector<RGBA8>& pixels, uint8_t channelValue, int channel,
                                    int textureWidth, int textureHeight, bool autoMaskOnZero) = 0;
+
+    // Inverse of SerializeChannel: reads one DMX channel's value back out of a
+    // received Spout input frame - mirrors IDMXSerializer.DeserializeChannel, which
+    // takes a Texture2D; this takes the same flat RGBA8 pixel buffer SerializeChannel
+    // writes into (see native/src/spout/SpoutInput.h for how that buffer is produced).
+    // Only VRSL, Binary, and MDMX have a real implementation, matching the C#
+    // reference - the other serializers throw NotImplementedException there (Ternary's
+    // is present but explicitly broken per an in-source comment), so this default
+    // (return 0, i.e. no-op) is intentionally the norm, not a gap - see
+    // native/README.md.
+    virtual uint8_t DeserializeChannel(const std::vector<RGBA8>& pixels, int channel, int textureWidth,
+                                        int textureHeight) {
+        (void)pixels; (void)channel; (void)textureWidth; (void)textureHeight;
+        return 0;
+    }
 
     // Called once after all channels for the frame have gone through SerializeChannel -
     // mirrors IDMXSerializer.CompleteFrame. Default no-op; MDMX uses this to draw its

@@ -153,6 +153,32 @@ UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& serializerRegi
 
     ImGui::Separator();
 
+    // --- Deserializer / Spout input ("Transcode", UIController.cs's "Deserializer
+    // Settings" region) ---
+    if (ImGui::CollapsingHeader("Spout Input (Transcode)")) {
+        changed |= ImGui::Checkbox("Transcode", &config.transcode);
+        changed |= ImGui::Checkbox("Merge Transcode", &config.mergeTranscode);
+        changed |= ImGui::InputInt("Transcode Universe Count", &config.transcodeUniverseCount);
+        changed |= ImGui::InputText("Spout Input Name", &config.spoutInputName);
+
+        if (!config.deserializer) config.deserializer = serializerRegistry.Default();
+        if (ImGui::BeginCombo("Deserializer", config.deserializer->Name())) {
+            for (const auto& candidate : serializerRegistry.All()) {
+                bool isSelected = candidate.get() == config.deserializer;
+                if (ImGui::Selectable(candidate->Name(), isSelected)) {
+                    config.deserializer = candidate.get();
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::Text("%s Settings (Deserializer)", config.deserializer->Name());
+        changed |= config.deserializer->DrawUi();
+    }
+
+    ImGui::Separator();
+
     // --- Generators (dynamic list, mirrors ShowConfiguration.cs's Generators) ---
     // Drawn before exporters to match the C# pipeline order (generators run before
     // the serializer each frame - see FrameRenderer::Render).

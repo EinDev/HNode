@@ -29,6 +29,7 @@
 #include "render/FrameRenderer.h"
 #include "spout/SpoutOutput.h"
 #include "spout/SpoutSendThread.h"
+#include "spout/SpoutReceiveThread.h"
 #include "exporters/ExporterRegistry.h"
 #include "generators/GeneratorRegistry.h"
 #include "config/ShowConfig.h"
@@ -107,6 +108,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Same idea, a second/separate hidden shared-context window for
+    // SpoutReceiveThread (Spout input/Transcode) - each Spout worker thread needs its
+    // OWN context, they can't share one between them since both make their context
+    // current on different threads simultaneously.
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    GLFWwindow* spoutInputContextWindow = glfwCreateWindow(1, 1, "", nullptr, window);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    if (!spoutInputContextWindow) {
+        glfwTerminate();
+        return 1;
+    }
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
@@ -121,6 +134,7 @@ int main(int argc, char** argv) {
 
     ShowConfig config; // starts from defaults (no exporters, VRSL serializer); use Load to open a .shwcfg.
     config.serializer = serializerRegistry.Default();
+    config.deserializer = serializerRegistry.Default();
 
     DmxBuffer dmxBuffer;
     FrameRenderer frameRenderer;
@@ -133,6 +147,26 @@ int main(int argc, char** argv) {
     std::atomic<bool> dirty{true};
     std::atomic<bool> artNetConnected{false};
     std::atomic<uint64_t> artNetPacketCount{0}; // for the "nerdy stats" packets/sec readout
+
+    // Spout input ("Transcode") - only actually polls/receives while
+    // config.transcode is true (see SpoutReceiveThread.h); starts either way so it's
+    // ready to go the moment Transcode is turned on in the UI/config.
+    SpoutReceiveThread spoutReceiveThread;
+    spoutReceiveThread.SetCallback([&dirty, window]() {
+        dirty.store(true);
+        glfwPostEmptyEvent();
+    });
+    spoutReceiveThread.Start(spoutInputContextWindow);
+    spoutReceiveThread.SetName(config.spoutInputName);
+    spoutReceiveThread.SetEnabled(config.transcode);
+    // Latest frame the main thread has picked up from the receive thread - persists
+    // across loop iterations (a fresh frame doesn't arrive every iteration) since
+    // TranscodeInput.pixels needs SOMETHING to deserialize against even between new
+    // Spout frames, same as how the C# reference's `reader.dmxData` just holds the
+    // last-computed transcode result until TextureReader.Update() runs again.
+    std::vector<RGBA8> latestSpoutInputFrame;
+    int latestSpoutInputWidth = 0;
+    int latestSpoutInputHeight = 0;
 
     PerfStats perfStats;
     auto lastRenderTime = std::chrono::steady_clock::now();
@@ -165,6 +199,8 @@ int main(int argc, char** argv) {
     std::string appliedArtNetAddress = config.artNetAddress;
     int appliedArtNetPort = config.artNetPort;
     std::string appliedSpoutName = config.spoutOutputName;
+    std::string appliedSpoutInputName = config.spoutInputName;
+    bool appliedTranscode = config.transcode;
 
     // CLI config file passthrough (Loader.cs's ReadCLIConfigFile) - takes priority
     // over the autosave restore below if given.
@@ -281,8 +317,25 @@ int main(int argc, char** argv) {
             artnet.SetNodeInfo("HNode", "HNode (native) - " + config.spoutOutputName);
             appliedSpoutName = config.spoutOutputName;
         }
+        if (config.spoutInputName != appliedSpoutInputName) {
+            spoutReceiveThread.SetName(config.spoutInputName);
+            appliedSpoutInputName = config.spoutInputName;
+        }
+        if (config.transcode != appliedTranscode) {
+            spoutReceiveThread.SetEnabled(config.transcode);
+            appliedTranscode = config.transcode;
+        }
 
         frameRenderer.SetResolution(config.outputWidth, config.outputHeight);
+
+        // Pull whatever the receive thread has captured since the last iteration -
+        // cheap (a mutex + move) even when nothing new arrived. Only actually matters
+        // while Transcode is on; harmless (and near-instantly false) otherwise since
+        // SpoutReceiveThread doesn't poll/capture frames while disabled.
+        if (spoutReceiveThread.TryGetLatestFrame(latestSpoutInputFrame, latestSpoutInputWidth,
+                                                  latestSpoutInputHeight)) {
+            if (config.transcode) dirty.store(true);
+        }
 
         if (dirty.exchange(false)) {
             // "Nerdy statistics" (README feature list / TextureWriter.cs's on-screen
@@ -290,9 +343,19 @@ int main(int argc, char** argv) {
             // much wall-clock time elapsed since the last one, to derive a throughput
             // figure the same way TextureWriter.cs did (channels / time).
             auto renderStart = std::chrono::steady_clock::now();
+
+            TranscodeInput transcodeInput;
+            transcodeInput.transcode = config.transcode;
+            transcodeInput.mergeTranscode = config.mergeTranscode;
+            transcodeInput.deserializer = config.deserializer;
+            transcodeInput.universeCount = config.transcodeUniverseCount;
+            transcodeInput.pixels = &latestSpoutInputFrame;
+            transcodeInput.width = latestSpoutInputWidth;
+            transcodeInput.height = latestSpoutInputHeight;
+
             frameRenderer.Render(dmxBuffer, config.generators, *config.serializer, config.maskedChannels,
                                   config.invertMask, config.autoMaskOnZero,
-                                  config.serializeUniverseCount);
+                                  config.serializeUniverseCount, transcodeInput);
             auto renderEnd = std::chrono::steady_clock::now();
 
             // Flush before handing off to the send thread - required so its context
@@ -369,9 +432,10 @@ int main(int argc, char** argv) {
     }
 
     artnet.Stop();
-    // Joins the send thread (releasing its Spout sender and GL context) before the
-    // shared context window it depends on is destroyed below.
+    // Joins the send/receive threads (releasing their Spout sender/receiver and GL
+    // contexts) before the shared context windows they depend on are destroyed below.
     spoutSendThread.Stop();
+    spoutReceiveThread.Stop();
     for (auto& exporter : config.exporters) exporter->Deconstruct();
     for (auto& generator : config.generators) generator->Deconstruct();
 
@@ -380,6 +444,7 @@ int main(int argc, char** argv) {
     ImGui::DestroyContext();
 
     glfwDestroyWindow(spoutContextWindow);
+    glfwDestroyWindow(spoutInputContextWindow);
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

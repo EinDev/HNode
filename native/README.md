@@ -62,7 +62,20 @@ as before. This is an additional, independent app living alongside it.
   as a UDP packet on 5 fixed loopback ports; framerate is parsed but never transmitted,
   matching the C# original's dead code there)
 - CPU pixel buffer -> GL preview texture (`src/render`)
-- Spout2 output, using the vendored SDK in `third_party/Spout` (`src/spout`)
+- Spout2 output AND input, using the vendored SDK in `third_party/Spout` (`src/spout`).
+  Input ("Transcode") reads an external Spout source, runs it through a second,
+  independent `deserializer` (`ISerializer::DeserializeChannel` - the inverse of
+  `SerializeChannel`), and merges the result into the ArtNet-merged DMX buffer -
+  either a full replace or a channel-wise `max()` merge on top of ArtNet
+  (`transcode`/`mergeTranscode`, see `FrameRenderer::Render`'s `TranscodeInput`).
+  `DeserializeChannel` is only implemented for VRSL, Binary, and MDMX, matching the
+  C# reference exactly - ColorBinary/Spiral/FuralitySomna throw `NotImplementedException`
+  there (and Ternary's is present but explicitly broken per an in-source comment), so
+  the native port's default no-op for those isn't a gap, it's parity. Like Spout
+  output, receiving runs on its own thread with a shared GL context
+  (`SpoutReceiveThread`, mirroring `SpoutSendThread`) since Spout's GL/DX interop can
+  block - but unlike sending, receiving is a continuous poll loop (Spout has no
+  receive-side push notification), only active while `transcode` is enabled.
 - `.shwcfg` YAML load/save (`src/config`), field-compatible with the Unity app's
   `ShowConfiguration.cs` for the fields both share (see the comment at the top of
   `ShowConfig.h` for exactly which fields and simplifications - notably, DMX channel
@@ -70,13 +83,12 @@ as before. This is an additional, independent app living alongside it.
   version's arithmetic-equation syntax). Each serializer/generator/exporter persists
   its own fields via `ReadYaml`/`WriteYaml`.
 - An ImGui settings panel (`src/ui`) covering the serializer-side fields the Unity UI
-  exposes, dropdowns/add-remove lists for serializers/generators/exporters, Save/Load
-  via native file dialogs (`src/ui/FileDialog.h`)
+  exposes, dropdowns/add-remove lists for serializers/generators/exporters, a separate
+  Deserializer/Transcode section for Spout input, Save/Load via native file dialogs
+  (`src/ui/FileDialog.h`)
 - `--config-file=` CLI passthrough (`Loader.cs`'s `ReadCLIConfigFile`)
 
 ## What's intentionally out of scope (not dropped by accident)
-- Spout **input** / deserialize (the `Transcode` path) - `DeserializeChannel` isn't
-  implemented on any serializer
 - The DMX preview/chroma-key window
 - FuralitySomnaSerializer's `mergedChannels` field has no UI and isn't persisted to
   YAML yet (config-only in the C# original too, just not wired up here)

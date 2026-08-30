@@ -1,9 +1,9 @@
 #pragma once
 // ImGui settings panel covering the serializer-side fields UIController.cs exposes
 // (Assets/UIController.cs), a dropdown to pick among SerializerRegistry's serializers
-// (matching UIController.cs's serializerDropdown), and the selected serializer's own
-// DrawUi() controls (e.g. VRSL's ConstructUserInterface toggles). Deserializer/
-// transcode fields are out of scope (Spout input isn't implemented).
+// (matching UIController.cs's serializerDropdown), the selected serializer's own
+// DrawUi() controls (e.g. VRSL's ConstructUserInterface toggles), and the equivalent
+// Deserializer/Transcode "Deserializer Settings" section for Spout input.
 #include "../config/ShowConfig.h"
 #include "../serializers/SerializerRegistry.h"
 #include "../exporters/ExporterRegistry.h"

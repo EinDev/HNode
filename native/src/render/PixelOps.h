@@ -67,3 +67,21 @@ inline float SrgbToLinear(float c) {
     if (c <= 0.04045f) return c / 12.92f;
     return powf((c + 0.055f) / 1.055f, 2.4f);
 }
+
+// Unity's Color.gamma: the inverse of SrgbToLinear above (linear -> sRGB gamma
+// space). Used by VRSL's DeserializeChannel (Spout input), mirroring
+// TextureReader.GetColor's `.gamma` call.
+inline float LinearToSrgb(float c) {
+    if (c <= 0.0031308f) return c * 12.92f;
+    return 1.055f * powf(c, 1.0f / 2.4f) - 0.055f;
+}
+
+// Reads a single pixel at (x, y) with the same bottom-up Y-flip convention
+// TextureReader.GetColor uses (Assets/TextureReader.cs) - the inverse read of what
+// MakeColorBlock/MixColorBlock above write. Returns a transparent-black RGBA8 if
+// (x, y) is out of bounds, matching PixelToIndex's -1 sentinel.
+inline RGBA8 GetPixelColor(const std::vector<RGBA8>& pixels, int x, int y, int textureWidth, int textureHeight) {
+    int index = PixelToIndex(x, y, textureWidth, textureHeight);
+    if (index == -1) return RGBA8{};
+    return pixels[static_cast<size_t>(index)];
+}

@@ -84,6 +84,50 @@ bool TryAs(const YAML::Node& node, T& out) {
     }
 }
 
+// Resolves a tagged serializer node (e.g. "!VRSL") to a registry instance and reads
+// its own persisted fields - shared by both `serializer` and `deserializer`, which use
+// the exact same tag-resolution/field-persistence shape (see ShowConfig.h's comment).
+// Falls back to the registry default on a missing/unrecognized tag, matching
+// Loader.cs's default-to-VRSL behavior for both fields.
+ISerializer* ReadSerializerNode(const YAML::Node& node, SerializerRegistry& serializerRegistry) {
+    if (!node || !node.IsMap()) return serializerRegistry.Default();
+
+    const std::string& tag = node.Tag();
+    bool isDefaultTag = tag.empty() || tag == "?" || tag == "!" || tag == "tag:yaml.org,2002:map";
+
+    ISerializer* resolved =
+        isDefaultTag ? serializerRegistry.Default() : serializerRegistry.Find(tag.substr(tag.find_last_of('!') + 1));
+    if (!resolved) resolved = serializerRegistry.Default();
+
+    // Only VRSL currently has any config-file-backed fields (see VrslSerializer.h) -
+    // every other serializer has no persisted settings.
+    if (resolved && std::string(resolved->Name()) == "VRSL") {
+        auto* vrsl = static_cast<VrslSerializer*>(resolved);
+        TryAs(node["gammaCorrection"], vrsl->gammaCorrection);
+        TryAs(node["rgbGridMode"], vrsl->rgbGridMode);
+
+        std::string outputConfigText;
+        if (TryAs(node["outputConfig"], outputConfigText)) {
+            VrslSerializer::OutputConfig parsed;
+            if (ParseOutputConfig(outputConfigText, parsed)) vrsl->outputConfig = parsed;
+        }
+    }
+
+    return resolved;
+}
+
+// Mirror of ReadSerializerNode above - writes a serializer's tag + own fields.
+void WriteSerializerNode(YAML::Emitter& emitter, ISerializer* serializer) {
+    emitter << YAML::LocalTag(serializer ? serializer->Name() : "VRSL") << YAML::BeginMap;
+    if (serializer && std::string(serializer->Name()) == "VRSL") {
+        auto* vrsl = static_cast<VrslSerializer*>(serializer);
+        emitter << YAML::Key << "gammaCorrection" << YAML::Value << vrsl->gammaCorrection;
+        emitter << YAML::Key << "rgbGridMode" << YAML::Value << vrsl->rgbGridMode;
+        emitter << YAML::Key << "outputConfig" << YAML::Value << VrslSerializer::ToString(vrsl->outputConfig);
+    }
+    emitter << YAML::EndMap;
+}
+
 } // namespace
 
 bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegistry& serializerRegistry,
@@ -91,6 +135,7 @@ bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegist
                        std::string& error) {
     out = ShowConfig{};
     out.serializer = serializerRegistry.Default();
+    out.deserializer = serializerRegistry.Default();
 
     YAML::Node root;
     try {
@@ -137,32 +182,17 @@ bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegist
         TryAs(resolution["height"], out.outputHeight);
     }
 
-    YAML::Node serializerNode = root["serializer"];
-    if (serializerNode && serializerNode.IsMap()) {
-        // The node's explicit tag (e.g. "!VRSL", "!Binary", "!BinaryStageFlight")
-        // names which registered serializer to select - untagged/default-tagged maps
-        // fall back to the registry default (VRSL), matching Loader.cs's own default.
-        const std::string& tag = serializerNode.Tag();
-        bool isDefaultTag = tag.empty() || tag == "?" || tag == "!" || tag == "tag:yaml.org,2002:map";
+    // The node's explicit tag (e.g. "!VRSL", "!Binary", "!BinaryStageFlight") names
+    // which registered serializer to select - untagged/default-tagged maps fall back
+    // to the registry default (VRSL), matching Loader.cs's own default for both
+    // Serializer and Deserializer.
+    out.serializer = ReadSerializerNode(root["serializer"], serializerRegistry);
+    out.deserializer = ReadSerializerNode(root["deserializer"], serializerRegistry);
 
-        ISerializer* resolved = isDefaultTag ? serializerRegistry.Default()
-                                              : serializerRegistry.Find(tag.substr(tag.find_last_of('!') + 1));
-        if (resolved) out.serializer = resolved;
-
-        // Only VRSL currently has any config-file-backed fields (see
-        // VrslSerializer.h) - every other serializer has no persisted settings.
-        if (out.serializer && std::string(out.serializer->Name()) == "VRSL") {
-            auto* vrsl = static_cast<VrslSerializer*>(out.serializer);
-            TryAs(serializerNode["gammaCorrection"], vrsl->gammaCorrection);
-            TryAs(serializerNode["rgbGridMode"], vrsl->rgbGridMode);
-
-            std::string outputConfigText;
-            if (TryAs(serializerNode["outputConfig"], outputConfigText)) {
-                VrslSerializer::OutputConfig parsed;
-                if (ParseOutputConfig(outputConfigText, parsed)) vrsl->outputConfig = parsed;
-            }
-        }
-    }
+    TryAs(root["transcode"], out.transcode);
+    TryAs(root["mergeTranscode"], out.mergeTranscode);
+    TryAs(root["transcodeUniverseCount"], out.transcodeUniverseCount);
+    TryAs(root["spoutInputName"], out.spoutInputName);
 
     // Each exporter is tagged with its type name (e.g. "!MIDIDMX"); unrecognized tags
     // (an exporter type this native port doesn't have yet) are skipped, not errors,
@@ -233,14 +263,15 @@ bool ShowConfig::Save(const std::string& path, std::string& error) const {
     // Tagged with the selected serializer's own name, matching YamlDotNet's
     // TagMappedAttribute mechanism on the C# side (e.g. "!VRSL", "!Binary").
     emitter << YAML::Key << "serializer" << YAML::Value;
-    emitter << YAML::LocalTag(serializer ? serializer->Name() : "VRSL") << YAML::BeginMap;
-    if (serializer && std::string(serializer->Name()) == "VRSL") {
-        auto* vrsl = static_cast<VrslSerializer*>(serializer);
-        emitter << YAML::Key << "gammaCorrection" << YAML::Value << vrsl->gammaCorrection;
-        emitter << YAML::Key << "rgbGridMode" << YAML::Value << vrsl->rgbGridMode;
-        emitter << YAML::Key << "outputConfig" << YAML::Value << VrslSerializer::ToString(vrsl->outputConfig);
-    }
-    emitter << YAML::EndMap;
+    WriteSerializerNode(emitter, serializer);
+
+    emitter << YAML::Key << "deserializer" << YAML::Value;
+    WriteSerializerNode(emitter, deserializer);
+
+    emitter << YAML::Key << "transcode" << YAML::Value << transcode;
+    emitter << YAML::Key << "mergeTranscode" << YAML::Value << mergeTranscode;
+    emitter << YAML::Key << "transcodeUniverseCount" << YAML::Value << transcodeUniverseCount;
+    emitter << YAML::Key << "spoutInputName" << YAML::Value << spoutInputName;
 
     emitter << YAML::Key << "exporters" << YAML::Value << YAML::BeginSeq;
     for (const auto& exporter : exporters) {

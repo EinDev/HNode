@@ -42,15 +42,58 @@ void FrameRenderer::SetResolution(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+std::vector<uint8_t> FrameRenderer::ComputeTranscodedDmx(const TranscodeInput& transcodeInput) {
+    // std::max<int>(...) - not a bare std::max() call, which windows.h's function-like
+    // `max` macro (no NOMINMAX defined project-wide) would corrupt; the explicit
+    // template argument makes the token after "max" a "<" instead of "(", which the
+    // macro doesn't match. Same trick this file's pre-existing std::min<int64_t>
+    // call below already relies on.
+    std::vector<uint8_t> dmxData(static_cast<size_t>(std::max<int>(0, transcodeInput.universeCount)) * 512, 0);
+    if (!transcodeInput.deserializer) return dmxData;
+
+    static const std::vector<RGBA8> kEmptyPixels;
+    const std::vector<RGBA8>& pixels = transcodeInput.pixels ? *transcodeInput.pixels : kEmptyPixels;
+
+    for (size_t i = 0; i < dmxData.size(); ++i) {
+        dmxData[i] = transcodeInput.deserializer->DeserializeChannel(pixels, static_cast<int>(i), transcodeInput.width,
+                                                                       transcodeInput.height);
+    }
+    return dmxData;
+}
+
 void FrameRenderer::Render(const DmxBuffer& dmx, const std::vector<std::unique_ptr<IGenerator>>& generators,
                             ISerializer& serializer, const std::vector<DmxChannelRange>& maskedChannels,
-                            bool invertMask, bool autoMaskOnZero, int64_t serializeUniverseCount) {
+                            bool invertMask, bool autoMaskOnZero, int64_t serializeUniverseCount,
+                            const TranscodeInput& transcodeInput) {
     if (width_ == 0 || height_ == 0) return;
 
     // Fill with transparent, matching TextureWriter.Update()'s Array.Clear(pixels, ...).
     std::fill(pixels_.begin(), pixels_.end(), RGBA8{});
 
-    dmx.Merge(mergedDmx_);
+    // Mirrors TextureWriter.cs's Transcode/MergeTranscode branches exactly: a
+    // transcode-without-merge REPLACES the ArtNet merge entirely (the ArtNet merge
+    // doesn't even run - matches the C#'s `if (...) {...} else if (dmxManager...) {...}`
+    // being mutually exclusive), while a transcode-with-merge runs both and combines.
+    if (transcodeInput.transcode && !transcodeInput.mergeTranscode) {
+        mergedDmx_ = ComputeTranscodedDmx(transcodeInput);
+    } else {
+        dmx.Merge(mergedDmx_);
+    }
+
+    if (transcodeInput.transcode && transcodeInput.mergeTranscode) {
+        std::vector<uint8_t> transcodedValues = ComputeTranscodedDmx(transcodeInput);
+        // Channel-wise max() merge, extending mergedDmx_ if the transcoded data is
+        // longer - matches TextureWriter.cs's loop. (Indices where only mergedDmx_
+        // already has a value are left untouched, matching the C# reference exactly -
+        // no need to explicitly handle that case since we simply don't touch it here.)
+        if (mergedDmx_.size() < transcodedValues.size()) {
+            mergedDmx_.resize(transcodedValues.size(), 0);
+        }
+        for (size_t i = 0; i < transcodedValues.size(); ++i) {
+            mergedDmx_[i] = std::max<uint8_t>(transcodedValues[i], mergedDmx_[i]);
+        }
+    }
+
     for (const auto& generator : generators) {
         generator->GenerateDMX(mergedDmx_);
     }
