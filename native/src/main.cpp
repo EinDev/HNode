@@ -235,8 +235,7 @@ int main(int argc, char** argv) {
                                   config.serializeUniverseCount);
             auto renderEnd = std::chrono::steady_clock::now();
 
-            spoutOutput.SendFrame(reinterpret_cast<const uint8_t*>(frameRenderer.Pixels().data()),
-                                   static_cast<unsigned int>(frameRenderer.Width()),
+            spoutOutput.SendFrame(frameRenderer.TextureId(), static_cast<unsigned int>(frameRenderer.Width()),
                                    static_cast<unsigned int>(frameRenderer.Height()));
             for (auto& exporter : config.exporters) {
                 exporter->FrameRendered(frameRenderer.Pixels(), frameRenderer.Width(), frameRenderer.Height());

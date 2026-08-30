@@ -31,10 +31,13 @@ void SpoutOutput::SetName(const std::string& name) {
     impl_->name = name;
 }
 
-bool SpoutOutput::SendFrame(const uint8_t* rgba8Pixels, unsigned int width, unsigned int height) {
-    // bInvert = true: the incoming buffer is top-down (row 0 = top), while Spout/OpenGL's
-    // native image convention is bottom-up, so the SDK needs to flip it while sending.
-    return impl_->sender.SendImage(rgba8Pixels, width, height, GL_RGBA, /*bInvert=*/true, /*HostFBO=*/0);
+bool SpoutOutput::SendFrame(unsigned int textureId, unsigned int width, unsigned int height) {
+    // bInvert = true: FrameRenderer's texture is top-down (row 0 = top), while
+    // Spout/OpenGL's native image convention is bottom-up, so the SDK needs to flip
+    // it while sending - same reasoning as the CPU-pixel SendImage() path this
+    // replaced, just applied to an existing texture instead of re-uploading pixels.
+    return impl_->sender.SendTexture(static_cast<GLuint>(textureId), GL_TEXTURE_2D, width, height,
+                                      /*bInvert=*/true, /*HostFBO=*/0);
 }
 
 void SpoutOutput::Release() {

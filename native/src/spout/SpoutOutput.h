@@ -23,10 +23,19 @@ public:
     // show-config (re)load - Klak.Spout recreates the sender internally on name change).
     void SetName(const std::string& name);
 
-    // Sends an RGBA8, top-down (row 0 = top of image) pixel buffer of width*height*4
-    // bytes as this frame's Spout output, creating/recreating the sender as needed if
-    // the name or resolution changed since the last send. Returns false on failure.
-    bool SendFrame(const uint8_t* rgba8Pixels, unsigned int width, unsigned int height);
+    // Sends an existing GL_TEXTURE_2D (top-down, row 0 = top of image - matching
+    // FrameRenderer's texture, which is exactly what this is meant to be called with)
+    // as this frame's Spout output, creating/recreating the sender as needed if the
+    // name or resolution changed since the last send. Returns false on failure.
+    //
+    // Takes a texture, not a raw CPU pixel buffer, specifically to avoid a redundant
+    // CPU->GPU upload: FrameRenderer already uploads the rendered frame to a GL
+    // texture for the on-screen preview, so re-uploading the same bytes again here
+    // (as an earlier SendImage()-based version of this function did) doubled the
+    // per-frame upload cost for no benefit, on the same thread that also has to stay
+    // responsive to new ArtNet data - see the investigation behind this change for
+    // the full latency analysis.
+    bool SendFrame(unsigned int textureId, unsigned int width, unsigned int height);
 
     void Release();
 
