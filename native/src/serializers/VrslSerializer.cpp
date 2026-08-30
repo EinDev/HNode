@@ -1,5 +1,9 @@
 #include "VrslSerializer.h"
-#include "imgui.h"
+// DrawUi() lives in VrslSerializerUi.cpp, NOT here - this file is deliberately kept
+// free of any ImGui/vcpkg dependency so native/build_bench.bat's CI performance
+// benchmark (which links this file directly for its DmxBuffer+VrslSerializer hot
+// path measurement) can compile and link in seconds with zero external
+// dependencies. Keep it that way: don't add UI/vcpkg includes to this file.
 
 void VrslSerializer::GetPositionData(int channel, int& x, int& y, int textureWidth, int textureHeight) const {
     int channelInUniverse = channel % 512;
@@ -82,18 +86,6 @@ const char* VrslSerializer::ToString(OutputConfig config) {
         case OutputConfig::HorizontalBottom: return "HorizontalBottom";
     }
     return "HorizontalTop";
-}
-
-bool VrslSerializer::DrawUi() {
-    bool changed = false;
-    changed |= ImGui::Checkbox("Gamma Correction", &gammaCorrection);
-    changed |= ImGui::Checkbox("RGB Grid Mode", &rgbGridMode);
-    ImGui::Text("Output Config: %s", ToString(outputConfig));
-    if (ImGui::Button("Cycle Output Config")) {
-        outputConfig = CycleNext(outputConfig);
-        changed = true;
-    }
-    return changed;
 }
 
 VrslSerializer::OutputConfig VrslSerializer::CycleNext(OutputConfig config) {

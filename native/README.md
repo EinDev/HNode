@@ -76,6 +76,18 @@ alongside it - `build.bat` copies them automatically).
 CI builds this on every push that touches `native/**` - see
 `.github/workflows/native.yml`.
 
+## Performance baseline
+`build_bench.bat` builds a standalone benchmark (`native/src/bench/BenchMain.cpp`)
+measuring the DMX merge + VRSL serialize hot path - the same code
+`FrameRenderer::Render()` runs every dirty frame, minus the final GL texture upload.
+It has zero external dependencies (no vcpkg needed), so it's fast to build and runs
+as its own parallel CI job on every push. Because CI runners are shared,
+variable-speed machines, the benchmark times a fixed calibration workload on the same
+machine in the same run and reports the *ratio* of actual-work-time to
+calibration-time - track that ratio over time (visible in each run's job summary),
+not the raw millisecond figures, which only mean something when comparing runs on one
+fixed machine.
+
 ## Third-party code
 `third_party/Spout` is vendored, unmodified source from the
 [Spout2](https://github.com/leadedge/Spout2) SDK (`SPOUTSDK/SpoutGL`), used the same

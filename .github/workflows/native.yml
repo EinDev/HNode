@@ -69,3 +69,46 @@ jobs:
           path: |
             native/build/HNode.exe
             native/build/*.dll
+
+  # Deliberately a separate, independent job (no vcpkg dependency at all - see
+  # native/build_bench.bat) so it builds and runs in well under a minute, in parallel
+  # with build-windows, giving fast perf-regression feedback on every push. See
+  # native/src/bench/BenchMain.cpp's header comment for why this reports a
+  # calibration-normalized *ratio* instead of raw milliseconds: CI runners are shared,
+  # variable-speed machines, so a bare "took N ms" figure isn't meaningfully
+  # comparable run over run - the ratio (workload time / a fixed reference workload's
+  # time, both measured on this run's own machine) mostly cancels that out.
+  perf-baseline:
+    name: Perf baseline (CI-noise-normalized)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build benchmark
+        run: native\build_bench.bat
+        shell: cmd
+
+      - name: Run benchmark
+        shell: pwsh
+        run: |
+          $output = & native\build\bench.exe
+          $output | ForEach-Object { Write-Host $_ }
+
+          $jsonLine = $output | Select-String -Pattern '^BENCH_JSON:(.+)$'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### HNode perf baseline"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value 'Track the **ratio** field over time (workload time / a fixed calibration workload'"'"'s time, both measured on this run) - it stays meaningful across different or noisy CI runners. The raw ms figures below are only meaningful when comparing runs on one fixed machine (e.g. locally).'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```json'
+          if ($jsonLine) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $jsonLine.Matches[0].Groups[1].Value
+          } else {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "(bench.exe did not print a BENCH_JSON line - see the job log)"
+          }
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
