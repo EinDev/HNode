@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/EinDev/HNode/compare/v0.2.0...v0.3.0) (2026-08-30)
+
+
+### Features
+
+* accurate MIDI status and a perf-stats panel with a render-time graph ([934edad](https://github.com/EinDev/HNode/commit/934edad53b649901b9f0a73db1abae589e735448))
+
+
+### Bug Fixes
+
+* Spout output was uploading every frame to the GPU twice ([4f367d4](https://github.com/EinDev/HNode/commit/4f367d458dd1a96169386dbf3438a17df37715a1))
+* taskbar/window icon not showing (only exe file icon worked) ([02ead5b](https://github.com/EinDev/HNode/commit/02ead5bd7b1f97f2d54801890a288196d76615e5))
+
 ## [0.2.0](https://github.com/EinDev/HNode/compare/v0.1.0...v0.2.0) (2026-08-30)
 
 
