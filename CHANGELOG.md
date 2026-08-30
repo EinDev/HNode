@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/EinDev/HNode/compare/v0.3.0...v0.4.0) (2026-08-30)
+
+
+### Features
+
+* CI-noise-normalized performance baseline ([1db27bb](https://github.com/EinDev/HNode/commit/1db27bb0ecf7f18b1ea16c5fd1f80ae34b95bf0a))
+* implement MAVLinkDroneNetwork generator (Phase 1: transport) ([f79c4c6](https://github.com/EinDev/HNode/commit/f79c4c6f82c11d8b7bffa8a617f68aa3c7086e2b))
+* implement TimeCodeExporter (MIDI Time Code -&gt; UDP) ([e5cbdd6](https://github.com/EinDev/HNode/commit/e5cbdd64fc5cc627f120b40a2f08fa6ad7e0367e))
+* implement TwitchChat and OnTime generators ([1d168fd](https://github.com/EinDev/HNode/commit/1d168fde3a870547ba1a2abdcf60493d0c84cae4))
+* surface errors in-app; persist show config across restarts ([44e1850](https://github.com/EinDev/HNode/commit/44e1850471409c122815a5ef244cb435a9c8f892))
+
+
+### Bug Fixes
+
+* move Spout SendFrame off the main thread ([6796045](https://github.com/EinDev/HNode/commit/6796045cb4f980f3bf379e699bbd39d3eeabcaf1))
+
 ## [0.3.0](https://github.com/EinDev/HNode/compare/v0.2.0...v0.3.0) (2026-08-30)
 
 
