@@ -28,7 +28,7 @@ if errorlevel 1 (
 )
 
 set SOURCES=
-for %%D in (. artnet dmx serializers render spout config ui) do (
+for %%D in (. artnet dmx serializers render spout config ui exporters) do (
     for %%f in ("%ROOT%src\%%D\*.cpp") do set SOURCES=!SOURCES! "%%f"
 )
 
@@ -38,7 +38,7 @@ for %%f in ("%SPOUT_DIR%\*.cpp") do set SPOUT_SOURCES=!SPOUT_SOURCES! "%%f"
 set INCLUDES=/I "%VCPKG_INSTALLED%\include" /I "%ROOT%src"
 set DEFINES=/DGLFW_DLL /DYAML_CPP_DLL /D_CRT_SECURE_NO_WARNINGS
 set LIBPATH=/LIBPATH:"%VCPKG_INSTALLED%\lib"
-set LIBS=glfw3dll.lib imgui.lib yaml-cpp.lib opengl32.lib ws2_32.lib gdi32.lib user32.lib shell32.lib comdlg32.lib d3d11.lib dxgi.lib
+set LIBS=glfw3dll.lib imgui.lib yaml-cpp.lib opengl32.lib ws2_32.lib gdi32.lib user32.lib shell32.lib comdlg32.lib d3d11.lib dxgi.lib winmm.lib
 
 echo [build] Compiling...
 cl.exe /nologo /std:c++17 /EHsc /MD /W3 /O2 %DEFINES% %INCLUDES% ^

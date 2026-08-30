@@ -42,7 +42,7 @@ void FrameRenderer::SetResolution(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-void FrameRenderer::Render(const DmxBuffer& dmx, const VrslSerializer& serializer,
+void FrameRenderer::Render(const DmxBuffer& dmx, ISerializer& serializer,
                             const std::vector<DmxChannelRange>& maskedChannels, bool invertMask,
                             bool autoMaskOnZero, int64_t serializeUniverseCount) {
     if (width_ == 0 || height_ == 0) return;
@@ -51,6 +51,7 @@ void FrameRenderer::Render(const DmxBuffer& dmx, const VrslSerializer& serialize
     std::fill(pixels_.begin(), pixels_.end(), RGBA8{});
 
     dmx.Merge(mergedDmx_);
+    serializer.InitFrame();
 
     int64_t channelsToSerialize = std::min<int64_t>(serializeUniverseCount * 512,
                                                       static_cast<int64_t>(mergedDmx_.size()));
@@ -69,6 +70,8 @@ void FrameRenderer::Render(const DmxBuffer& dmx, const VrslSerializer& serialize
         serializer.SerializeChannel(pixels_, mergedDmx_[static_cast<size_t>(i)],
                                      static_cast<int>(i), width_, height_, autoMaskOnZero);
     }
+
+    serializer.CompleteFrame(pixels_, mergedDmx_, width_, height_);
 
     glBindTexture(GL_TEXTURE_2D, textureId_);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());

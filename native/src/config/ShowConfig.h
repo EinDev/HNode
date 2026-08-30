@@ -5,12 +5,16 @@
 //
 // The Unity app serializes with YamlDotNet's CamelCaseNamingConvention, so field
 // names on disk are camelCase (e.g. "artNetPort", "spoutOutputName"). The polymorphic
-// `serializer` node is tagged `!VRSL` (YamlDotNet's TagMappedAttribute mechanism); on
-// save we always emit `!VRSL` since that's the only serializer Phase 1 supports.
+// `serializer` node is tagged with the selected serializer's name (e.g. `!VRSL`,
+// YamlDotNet's TagMappedAttribute mechanism); serializer-specific sub-fields (like
+// VRSL's gammaCorrection) are only read/written for the serializers that have any -
+// see ShowConfig.cpp.
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "../serializers/VrslSerializer.h"
+#include "../serializers/ISerializer.h"
+
+class SerializerRegistry;
 
 struct DmxChannelRange {
     // Global (flat) channel indices, inclusive on both ends - simplified from
@@ -24,7 +28,12 @@ struct DmxChannelRange {
 };
 
 struct ShowConfig {
-    VrslSerializer serializer;
+    // Non-owning: points into a SerializerRegistry that outlives this ShowConfig
+    // (main.cpp constructs the registry before any ShowConfig). Never null once the
+    // config has been through its normal setup path (main.cpp assigns
+    // registry.Default() right after construction; Load() always resolves to at
+    // least the registry's default if the file's tag is missing/unrecognized).
+    ISerializer* serializer = nullptr;
 
     int serializeUniverseCount = INT32_MAX;
     std::vector<DmxChannelRange> maskedChannels;
@@ -42,7 +51,7 @@ struct ShowConfig {
     // Parses `path` into `out`, leaving fields at their defaults when absent from the
     // file (so a config missing a field just falls back rather than failing to load).
     // Returns false and fills `error` on a hard parse failure (bad YAML, unreadable file).
-    static bool Load(const std::string& path, ShowConfig& out, std::string& error);
+    static bool Load(const std::string& path, ShowConfig& out, SerializerRegistry& registry, std::string& error);
 
     // Writes `this` to `path` as .shwcfg YAML, preceded by the same explanatory header
     // comment Loader.cs prepends (channel format / equation note) for familiarity.

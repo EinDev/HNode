@@ -20,9 +20,10 @@
 
 #include "dmx/DmxBuffer.h"
 #include "artnet/ArtNetReceiver.h"
-#include "serializers/VrslSerializer.h"
+#include "serializers/SerializerRegistry.h"
 #include "render/FrameRenderer.h"
 #include "spout/SpoutOutput.h"
+#include "exporters/MidiDmxExporter.h"
 #include "config/ShowConfig.h"
 #include "ui/UiPanel.h"
 
@@ -98,7 +99,10 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
 
-    ShowConfig config; // Phase 1 always starts from defaults; use Load to open a .shwcfg.
+    SerializerRegistry serializerRegistry;
+
+    ShowConfig config; // starts from defaults; use Load to open a .shwcfg.
+    config.serializer = serializerRegistry.Default();
 
     DmxBuffer dmxBuffer;
     FrameRenderer frameRenderer;
@@ -106,6 +110,9 @@ int main() {
 
     SpoutOutput spoutOutput;
     spoutOutput.SetName(config.spoutOutputName);
+
+    MidiDmxExporter midiExporter;
+    midiExporter.Reconnect();
 
     std::atomic<bool> dirty{true};
     std::atomic<bool> artNetConnected{false};
@@ -137,8 +144,10 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        UiPanelResult ui = DrawUiPanel(config, frameRenderer.TextureId(), artNetConnected.load());
+        UiPanelResult ui = DrawUiPanel(config, serializerRegistry, midiExporter,
+                                        frameRenderer.TextureId(), artNetConnected.load());
         if (ui.configChanged) dirty.store(true);
+        if (ui.requestMidiReconnect) midiExporter.Reconnect();
 
         HWND hwnd = glfwGetWin32Window(window);
 
@@ -156,7 +165,7 @@ int main() {
             if (ShowOpenDialog(hwnd, path)) {
                 std::string error;
                 ShowConfig loaded;
-                if (ShowConfig::Load(WideToNarrow(path), loaded, error)) {
+                if (ShowConfig::Load(WideToNarrow(path), loaded, serializerRegistry, error)) {
                     config = loaded;
                     dirty.store(true);
                 } else {
@@ -181,13 +190,21 @@ int main() {
         frameRenderer.SetResolution(config.outputWidth, config.outputHeight);
 
         if (dirty.exchange(false)) {
-            frameRenderer.Render(dmxBuffer, config.serializer, config.maskedChannels,
+            frameRenderer.Render(dmxBuffer, *config.serializer, config.maskedChannels,
                                   config.invertMask, config.autoMaskOnZero,
                                   config.serializeUniverseCount);
             spoutOutput.SendFrame(reinterpret_cast<const uint8_t*>(frameRenderer.Pixels().data()),
                                    static_cast<unsigned int>(frameRenderer.Width()),
                                    static_cast<unsigned int>(frameRenderer.Height()));
         }
+
+        // Unlike the Spout/preview path above, MIDIDMX needs a steady watchdog
+        // heartbeat regardless of whether DMX data actually changed (the VRChat-side
+        // receiver times out without one) - so this runs every loop iteration, not
+        // just on `dirty`. glfwWaitEventsTimeout(0.25) above bounds this to a ~4Hz
+        // minimum even when fully idle, which is enough to keep MIDIDMX.cs's 1-second
+        // watchdog timeout satisfied without spinning the GPU.
+        midiExporter.CompleteFrame(frameRenderer.MergedDmx());
 
         ImGui::Render();
         int displayW, displayH;
@@ -202,6 +219,7 @@ int main() {
 
     artnet.Stop();
     spoutOutput.Release();
+    midiExporter.Shutdown();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

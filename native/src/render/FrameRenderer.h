@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <vector>
 #include "../dmx/DmxBuffer.h"
-#include "../serializers/VrslSerializer.h"
+#include "../serializers/ISerializer.h"
 #include "../render/PixelOps.h"
 #include "../config/ShowConfig.h" // for DmxChannelRange
 
@@ -30,7 +30,7 @@ public:
     // texture. Call only when dirty (new DMX data, or a relevant setting changed) -
     // this is the expensive path the whole native port exists to avoid running every
     // frame unconditionally.
-    void Render(const DmxBuffer& dmx, const VrslSerializer& serializer,
+    void Render(const DmxBuffer& dmx, ISerializer& serializer,
                 const std::vector<DmxChannelRange>& maskedChannels, bool invertMask,
                 bool autoMaskOnZero, int64_t serializeUniverseCount);
 
@@ -39,10 +39,15 @@ public:
     int Height() const { return height_; }
     const std::vector<RGBA8>& Pixels() const { return pixels_; }
 
+    // The flat, merged DMX buffer from the most recent Render() call - exporters
+    // (e.g. MidiDmxExporter) that need the same per-frame channel data run off this
+    // instead of re-merging DmxBuffer themselves.
+    const std::vector<uint8_t>& MergedDmx() const { return mergedDmx_; }
+
 private:
     int width_ = 0;
     int height_ = 0;
     unsigned int textureId_ = 0;
     std::vector<RGBA8> pixels_;
-    mutable std::vector<uint8_t> mergedDmx_;
+    std::vector<uint8_t> mergedDmx_;
 };

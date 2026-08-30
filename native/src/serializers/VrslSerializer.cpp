@@ -1,4 +1,5 @@
 #include "VrslSerializer.h"
+#include "imgui.h"
 
 void VrslSerializer::GetPositionData(int channel, int& x, int& y, int textureWidth, int textureHeight) const {
     int channelInUniverse = channel % 512;
@@ -39,7 +40,7 @@ int VrslSerializer::GetUniverseWrap(int channel) {
 }
 
 void VrslSerializer::SerializeChannel(std::vector<RGBA8>& pixels, uint8_t channelValue, int channel,
-                                       int textureWidth, int textureHeight, bool autoMaskOnZero) const {
+                                       int textureWidth, int textureHeight, bool autoMaskOnZero) {
     int x, y;
     GetPositionData(channel, x, y, textureWidth, textureHeight);
 
@@ -81,6 +82,18 @@ const char* VrslSerializer::ToString(OutputConfig config) {
         case OutputConfig::HorizontalBottom: return "HorizontalBottom";
     }
     return "HorizontalTop";
+}
+
+bool VrslSerializer::DrawUi() {
+    bool changed = false;
+    changed |= ImGui::Checkbox("Gamma Correction", &gammaCorrection);
+    changed |= ImGui::Checkbox("RGB Grid Mode", &rgbGridMode);
+    ImGui::Text("Output Config: %s", ToString(outputConfig));
+    if (ImGui::Button("Cycle Output Config")) {
+        outputConfig = CycleNext(outputConfig);
+        changed = true;
+    }
+    return changed;
 }
 
 VrslSerializer::OutputConfig VrslSerializer::CycleNext(OutputConfig config) {

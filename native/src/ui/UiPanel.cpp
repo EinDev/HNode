@@ -5,7 +5,8 @@
 #include "imgui.h"
 #include "imgui_stdlib.h"
 
-UiPanelResult DrawUiPanel(ShowConfig& config, unsigned int previewTextureId, bool artNetConnected) {
+UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& registry, MidiDmxExporter& midi,
+                           unsigned int previewTextureId, bool artNetConnected) {
     UiPanelResult result;
     bool changed = false;
 
@@ -45,18 +46,37 @@ UiPanelResult DrawUiPanel(ShowConfig& config, unsigned int previewTextureId, boo
     changed |= ImGui::InputInt("ArtNet Port", &config.artNetPort);
     changed |= ImGui::InputText("ArtNet Address", &config.artNetAddress);
 
+    // --- Serializer selection (UIController.cs serializerDropdown) ---
+    if (!config.serializer) config.serializer = registry.Default();
+    if (ImGui::BeginCombo("Serializer", config.serializer->Name())) {
+        for (const auto& candidate : registry.All()) {
+            bool isSelected = candidate.get() == config.serializer;
+            if (ImGui::Selectable(candidate->Name(), isSelected)) {
+                config.serializer = candidate.get();
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+
     ImGui::Separator();
 
-    // --- VRSL serializer settings (SerializerVRSL.cs ConstructUserInterface) ---
-    ImGui::Text("VRSL Settings");
+    // --- Selected serializer's own settings (e.g. SerializerVRSL.cs's
+    // ConstructUserInterface) ---
+    ImGui::Text("%s Settings", config.serializer->Name());
+    changed |= config.serializer->DrawUi();
 
-    changed |= ImGui::Checkbox("Gamma Correction", &config.serializer.gammaCorrection);
-    changed |= ImGui::Checkbox("RGB Grid Mode", &config.serializer.rgbGridMode);
+    ImGui::Separator();
 
-    ImGui::Text("Output Config: %s", VrslSerializer::ToString(config.serializer.outputConfig));
-    if (ImGui::Button("Cycle Output Config")) {
-        config.serializer.outputConfig = VrslSerializer::CycleNext(config.serializer.outputConfig);
-        changed = true;
+    // --- MIDIDMX exporter (Assets/Plugin/Exporters/MIDIDMX.cs ConstructUserInterface) ---
+    ImGui::Text("MIDIDMX Exporter");
+    ImGui::TextColored(midi.IsConnected() ? ImVec4(0.2f, 0.9f, 0.2f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+                        midi.IsConnected() ? "MIDI: connected" : "MIDI: disconnected");
+    ImGui::InputText("MIDI Device", &midi.midiDeviceName);
+    ImGui::InputInt("Channels Per Update", &midi.channelsPerUpdate);
+    ImGui::InputInt("Idle Scan Channels", &midi.idleScanChannels);
+    if (ImGui::Button("Reconnect MIDI Device")) {
+        result.requestMidiReconnect = true;
     }
 
     ImGui::Separator();
