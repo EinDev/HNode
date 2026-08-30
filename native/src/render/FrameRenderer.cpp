@@ -42,15 +42,18 @@ void FrameRenderer::SetResolution(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-void FrameRenderer::Render(const DmxBuffer& dmx, ISerializer& serializer,
-                            const std::vector<DmxChannelRange>& maskedChannels, bool invertMask,
-                            bool autoMaskOnZero, int64_t serializeUniverseCount) {
+void FrameRenderer::Render(const DmxBuffer& dmx, const std::vector<std::unique_ptr<IGenerator>>& generators,
+                            ISerializer& serializer, const std::vector<DmxChannelRange>& maskedChannels,
+                            bool invertMask, bool autoMaskOnZero, int64_t serializeUniverseCount) {
     if (width_ == 0 || height_ == 0) return;
 
     // Fill with transparent, matching TextureWriter.Update()'s Array.Clear(pixels, ...).
     std::fill(pixels_.begin(), pixels_.end(), RGBA8{});
 
     dmx.Merge(mergedDmx_);
+    for (const auto& generator : generators) {
+        generator->GenerateDMX(mergedDmx_);
+    }
     serializer.InitFrame();
 
     int64_t channelsToSerialize = std::min<int64_t>(serializeUniverseCount * 512,

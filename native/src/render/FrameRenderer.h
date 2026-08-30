@@ -6,8 +6,10 @@
 // callers pull the CPU pixel buffer via GetPixels() and hand it to SpoutOutput.
 #include <cstdint>
 #include <vector>
+#include <memory>
 #include "../dmx/DmxBuffer.h"
 #include "../serializers/ISerializer.h"
+#include "../generators/IGenerator.h"
 #include "../render/PixelOps.h"
 #include "../config/ShowConfig.h" // for DmxChannelRange
 
@@ -24,15 +26,16 @@ public:
     // GL context bound.
     void SetResolution(int width, int height);
 
-    // Re-serializes `dmx` through `serializer`, applying `maskedChannels`/`invertMask`/
-    // `autoMaskOnZero`, clipped to `serializeUniverseCount` channels (mirrors the
-    // masking/serialize loop in TextureWriter.cs), then uploads the result to the GL
-    // texture. Call only when dirty (new DMX data, or a relevant setting changed) -
-    // this is the expensive path the whole native port exists to avoid running every
-    // frame unconditionally.
-    void Render(const DmxBuffer& dmx, ISerializer& serializer,
-                const std::vector<DmxChannelRange>& maskedChannels, bool invertMask,
-                bool autoMaskOnZero, int64_t serializeUniverseCount);
+    // Merges `dmx`, runs it through `generators` in order (mirrors
+    // TextureWriter.cs's ordering: merge -> generators -> serializer), then
+    // re-serializes through `serializer`, applying `maskedChannels`/`invertMask`/
+    // `autoMaskOnZero`, clipped to `serializeUniverseCount` channels, and uploads the
+    // result to the GL texture. Call only when dirty (new DMX data, a relevant
+    // setting changed, or an animated generator's per-frame tick) - this is the
+    // expensive path the whole native port exists to avoid running unconditionally.
+    void Render(const DmxBuffer& dmx, const std::vector<std::unique_ptr<IGenerator>>& generators,
+                ISerializer& serializer, const std::vector<DmxChannelRange>& maskedChannels,
+                bool invertMask, bool autoMaskOnZero, int64_t serializeUniverseCount);
 
     unsigned int TextureId() const { return textureId_; }
     int Width() const { return width_; }

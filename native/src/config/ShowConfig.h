@@ -15,9 +15,11 @@
 #include <vector>
 #include "../serializers/ISerializer.h"
 #include "../exporters/IExporter.h"
+#include "../generators/IGenerator.h"
 
 class SerializerRegistry;
 class ExporterRegistry;
+class GeneratorRegistry;
 
 struct DmxChannelRange {
     // Global (flat) channel indices, inclusive on both ends - simplified from
@@ -44,6 +46,12 @@ struct ShowConfig {
     // single-selection registry entry. This makes ShowConfig move-only.
     std::vector<std::unique_ptr<IExporter>> exporters;
 
+    // Owning, dynamic list - same rationale as `exporters` above, mirrors
+    // ShowConfiguration.cs's `List<IDMXGenerator> Generators`. Run BEFORE the
+    // serializer in the per-frame pipeline (matches TextureWriter.cs's ordering:
+    // merge DMX -> generators -> serializer).
+    std::vector<std::unique_ptr<IGenerator>> generators;
+
     int serializeUniverseCount = INT32_MAX;
     std::vector<DmxChannelRange> maskedChannels;
     bool invertMask = false;
@@ -61,7 +69,8 @@ struct ShowConfig {
     // file (so a config missing a field just falls back rather than failing to load).
     // Returns false and fills `error` on a hard parse failure (bad YAML, unreadable file).
     static bool Load(const std::string& path, ShowConfig& out, SerializerRegistry& serializerRegistry,
-                      const ExporterRegistry& exporterRegistry, std::string& error);
+                      const ExporterRegistry& exporterRegistry, const GeneratorRegistry& generatorRegistry,
+                      std::string& error);
 
     // Writes `this` to `path` as .shwcfg YAML, preceded by the same explanatory header
     // comment Loader.cs prepends (channel format / equation note) for familiarity.

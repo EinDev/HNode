@@ -7,6 +7,7 @@
 #include "../config/ShowConfig.h"
 #include "../serializers/SerializerRegistry.h"
 #include "../exporters/ExporterRegistry.h"
+#include "../generators/GeneratorRegistry.h"
 
 struct UiPanelResult {
     bool configChanged = false;  // any field edited this frame -> caller should mark dirty
@@ -24,5 +25,5 @@ struct UiPanelResult {
 // `previewTextureId`, if non-zero, is shown as a live preview of the rendered frame
 // (the GL texture FrameRenderer maintains).
 UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& serializerRegistry,
-                           const ExporterRegistry& exporterRegistry, unsigned int previewTextureId,
-                           bool artNetConnected);
+                           const ExporterRegistry& exporterRegistry, const GeneratorRegistry& generatorRegistry,
+                           unsigned int previewTextureId, bool artNetConnected);

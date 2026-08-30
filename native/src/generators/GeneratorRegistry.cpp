@@ -1,0 +1,27 @@
+#include "GeneratorRegistry.h"
+
+#include "StaticValueGenerator.h"
+#include "RemapGenerator.h"
+#include "RemapOnDemandGenerator.h"
+#include "SnapshotGenerator.h"
+#include "FadeGenerator.h"
+#include "StrobeGenerator.h"
+#include "DmxPacketGenerator.h"
+#include "TextGenerator.h"
+
+std::vector<std::string> GeneratorRegistry::Names() const {
+    return {"StaticValue", "Remap", "RemapOnDemand", "Snapshot", "Fade", "Strobe", "DMXPacket", "Text", "Time"};
+}
+
+std::unique_ptr<IGenerator> GeneratorRegistry::Create(const std::string& name) const {
+    if (name == "StaticValue") return std::make_unique<StaticValueGenerator>();
+    if (name == "Remap") return std::make_unique<RemapGenerator>();
+    if (name == "RemapOnDemand") return std::make_unique<RemapOnDemandGenerator>();
+    if (name == "Snapshot") return std::make_unique<SnapshotGenerator>();
+    if (name == "Fade") return std::make_unique<FadeGenerator>();
+    if (name == "Strobe") return std::make_unique<StrobeGenerator>();
+    if (name == "DMXPacket") return std::make_unique<DmxPacketGenerator>();
+    if (name == "Text") return std::make_unique<TextGenerator>();
+    if (name == "Time") return std::make_unique<TimeGenerator>();
+    return nullptr;
+}

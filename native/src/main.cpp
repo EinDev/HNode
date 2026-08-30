@@ -14,6 +14,7 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstdio>
@@ -25,6 +26,7 @@
 #include "render/FrameRenderer.h"
 #include "spout/SpoutOutput.h"
 #include "exporters/ExporterRegistry.h"
+#include "generators/GeneratorRegistry.h"
 #include "config/ShowConfig.h"
 #include "ui/UiPanel.h"
 #include "ui/FileDialog.h"
@@ -77,6 +79,7 @@ int main(int argc, char** argv) {
 
     SerializerRegistry serializerRegistry;
     ExporterRegistry exporterRegistry;
+    GeneratorRegistry generatorRegistry;
 
     ShowConfig config; // starts from defaults (no exporters, VRSL serializer); use Load to open a .shwcfg.
     config.serializer = serializerRegistry.Default();
@@ -119,8 +122,9 @@ int main(int argc, char** argv) {
 
         ShowConfig loaded;
         std::string error;
-        if (ShowConfig::Load(configPath, loaded, serializerRegistry, exporterRegistry, error)) {
+        if (ShowConfig::Load(configPath, loaded, serializerRegistry, exporterRegistry, generatorRegistry, error)) {
             for (auto& exporter : loaded.exporters) exporter->Construct();
+            for (auto& generator : loaded.generators) generator->Construct();
             config = std::move(loaded);
             dirty.store(true);
         } else {
@@ -130,17 +134,31 @@ int main(int argc, char** argv) {
     }
 
     while (!glfwWindowShouldClose(window)) {
+        // Some generators (Fade, Strobe, Time - anything reading the system clock)
+        // need to keep animating even with no new ArtNet data - see IGenerator.h's
+        // "animation" note. While one is active, tick at targetFramerate instead of
+        // the normal idle timeout, and mark every frame dirty; otherwise fall back to
+        // the render-on-change idle path (no wakeups, ~0% GPU).
+        bool anyAnimatedGenerator = false;
+        for (const auto& generator : config.generators) {
+            if (generator->IsAnimated()) {
+                anyAnimatedGenerator = true;
+                break;
+            }
+        }
+        double waitTimeout = anyAnimatedGenerator ? 1.0 / std::max(1, config.targetFramerate) : 0.25;
+
         // Blocks until input arrives, glfwPostEmptyEvent() is called (by the ArtNet
-        // thread above), or the timeout elapses - this is the render-on-change idle
-        // path: no ArtNet data and no UI interaction means no wakeups and ~0% GPU.
-        glfwWaitEventsTimeout(0.25);
+        // thread above), or the timeout elapses.
+        glfwWaitEventsTimeout(waitTimeout);
         if (glfwWindowShouldClose(window)) break;
+        if (anyAnimatedGenerator) dirty.store(true);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        UiPanelResult ui = DrawUiPanel(config, serializerRegistry, exporterRegistry,
+        UiPanelResult ui = DrawUiPanel(config, serializerRegistry, exporterRegistry, generatorRegistry,
                                         frameRenderer.TextureId(), artNetConnected.load());
         if (ui.configChanged) dirty.store(true);
 
@@ -160,11 +178,14 @@ int main(int argc, char** argv) {
             if (ShowOpenFileDialog(hwnd, "Show Configurations", "shwcfg", path)) {
                 std::string error;
                 ShowConfig loaded;
-                if (ShowConfig::Load(WideToNarrow(path), loaded, serializerRegistry, exporterRegistry, error)) {
+                if (ShowConfig::Load(WideToNarrow(path), loaded, serializerRegistry, exporterRegistry,
+                                      generatorRegistry, error)) {
                     // Mirrors Loader.cs's UnloadShowConf()/LoadShowConf(): deconstruct
-                    // the outgoing exporters, construct the incoming ones.
+                    // the outgoing exporters/generators, construct the incoming ones.
                     for (auto& exporter : config.exporters) exporter->Deconstruct();
+                    for (auto& generator : config.generators) generator->Deconstruct();
                     for (auto& exporter : loaded.exporters) exporter->Construct();
+                    for (auto& generator : loaded.generators) generator->Construct();
                     config = std::move(loaded);
                     dirty.store(true);
                 } else {
@@ -189,7 +210,7 @@ int main(int argc, char** argv) {
         frameRenderer.SetResolution(config.outputWidth, config.outputHeight);
 
         if (dirty.exchange(false)) {
-            frameRenderer.Render(dmxBuffer, *config.serializer, config.maskedChannels,
+            frameRenderer.Render(dmxBuffer, config.generators, *config.serializer, config.maskedChannels,
                                   config.invertMask, config.autoMaskOnZero,
                                   config.serializeUniverseCount);
             spoutOutput.SendFrame(reinterpret_cast<const uint8_t*>(frameRenderer.Pixels().data()),
@@ -225,6 +246,7 @@ int main(int argc, char** argv) {
     artnet.Stop();
     spoutOutput.Release();
     for (auto& exporter : config.exporters) exporter->Deconstruct();
+    for (auto& generator : config.generators) generator->Deconstruct();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

@@ -7,6 +7,7 @@
 #include "../serializers/SerializerRegistry.h"
 #include "../serializers/VrslSerializer.h"
 #include "../exporters/ExporterRegistry.h"
+#include "../generators/GeneratorRegistry.h"
 
 namespace {
 
@@ -86,7 +87,8 @@ bool TryAs(const YAML::Node& node, T& out) {
 } // namespace
 
 bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegistry& serializerRegistry,
-                       const ExporterRegistry& exporterRegistry, std::string& error) {
+                       const ExporterRegistry& exporterRegistry, const GeneratorRegistry& generatorRegistry,
+                       std::string& error) {
     out = ShowConfig{};
     out.serializer = serializerRegistry.Default();
 
@@ -181,6 +183,22 @@ bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegist
         }
     }
 
+    // Same tag-resolved-by-name, skip-unrecognized approach as exporters above.
+    YAML::Node generatorsNode = root["generators"];
+    if (generatorsNode && generatorsNode.IsSequence()) {
+        for (const auto& item : generatorsNode) {
+            if (!item.IsMap()) continue;
+            std::string tag = item.Tag();
+            std::string name = tag.substr(tag.find_last_of('!') + 1);
+
+            auto generator = generatorRegistry.Create(name);
+            if (!generator) continue;
+
+            generator->ReadYaml(item);
+            out.generators.push_back(std::move(generator));
+        }
+    }
+
     return true;
 }
 
@@ -228,6 +246,14 @@ bool ShowConfig::Save(const std::string& path, std::string& error) const {
     for (const auto& exporter : exporters) {
         emitter << YAML::LocalTag(exporter->Name()) << YAML::BeginMap;
         exporter->WriteYaml(emitter);
+        emitter << YAML::EndMap;
+    }
+    emitter << YAML::EndSeq;
+
+    emitter << YAML::Key << "generators" << YAML::Value << YAML::BeginSeq;
+    for (const auto& generator : generators) {
+        emitter << YAML::LocalTag(generator->Name()) << YAML::BeginMap;
+        generator->WriteYaml(emitter);
         emitter << YAML::EndMap;
     }
     emitter << YAML::EndSeq;

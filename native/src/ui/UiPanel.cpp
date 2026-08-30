@@ -1,13 +1,75 @@
 #include "UiPanel.h"
 
 #include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "imgui.h"
 #include "imgui_stdlib.h"
 
+namespace {
+
+// Generic "dynamic list" UI shared by exporters and generators (both are a
+// vector<unique_ptr<TInterface>> with Name()/DrawUi()/Construct()/Deconstruct() and a
+// registry with Names()/Create()) - mirrors Loader.cs's SetupDynamicUI add/remove
+// closures, including calling the item's own Construct()/Deconstruct() at the moment
+// it's added/removed. Returns true if anything changed (an item's own settings, or
+// the list itself via add/remove) - the caller should mark the frame dirty when true.
+template <typename TInterface, typename TRegistry>
+bool DrawDynamicList(const char* sectionLabel, const char* addComboLabel,
+                      std::vector<std::unique_ptr<TInterface>>& items, const TRegistry& registry) {
+    bool changed = false;
+    ImGui::Text("%s", sectionLabel);
+
+    int removeIndex = -1;
+    for (size_t i = 0; i < items.size(); ++i) {
+        TInterface* item = items[i].get();
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::CollapsingHeader(item->Name(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            changed |= item->DrawUi();
+            if (ImGui::Button("Remove")) removeIndex = static_cast<int>(i);
+        }
+        ImGui::PopID();
+    }
+    if (removeIndex >= 0) {
+        items[static_cast<size_t>(removeIndex)]->Deconstruct();
+        items.erase(items.begin() + removeIndex);
+        changed = true;
+    }
+
+    static int newIndex = 0; // one instantiation per TInterface -> separate state for exporters vs. generators
+    std::vector<std::string> names = registry.Names();
+    if (!names.empty()) {
+        if (newIndex >= static_cast<int>(names.size())) newIndex = 0;
+        ImGui::PushID(addComboLabel);
+        if (ImGui::BeginCombo(addComboLabel, names[static_cast<size_t>(newIndex)].c_str())) {
+            for (size_t i = 0; i < names.size(); ++i) {
+                bool isSelected = static_cast<int>(i) == newIndex;
+                if (ImGui::Selectable(names[i].c_str(), isSelected)) newIndex = static_cast<int>(i);
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Add")) {
+            auto item = registry.Create(names[static_cast<size_t>(newIndex)]);
+            if (item) {
+                item->Construct();
+                items.push_back(std::move(item));
+                changed = true;
+            }
+        }
+        ImGui::PopID();
+    }
+
+    return changed;
+}
+
+} // namespace
+
 UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& serializerRegistry,
-                           const ExporterRegistry& exporterRegistry, unsigned int previewTextureId,
-                           bool artNetConnected) {
+                           const ExporterRegistry& exporterRegistry, const GeneratorRegistry& generatorRegistry,
+                           unsigned int previewTextureId, bool artNetConnected) {
     UiPanelResult result;
     bool changed = false;
 
@@ -69,47 +131,20 @@ UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& serializerRegi
 
     ImGui::Separator();
 
+    // --- Generators (dynamic list, mirrors ShowConfiguration.cs's Generators) ---
+    // Drawn before exporters to match the C# pipeline order (generators run before
+    // the serializer each frame - see FrameRenderer::Render).
+    changed |= DrawDynamicList("Generators", "Add Generator", config.generators, generatorRegistry);
+
+    ImGui::Separator();
+
     // --- Exporters (dynamic list, mirrors ShowConfiguration.cs's Exporters +
     // Loader.cs's SetupDynamicUI add/remove/reorder InterfaceList) ---
-    ImGui::Text("Exporters");
-
-    int removeIndex = -1;
-    for (size_t i = 0; i < config.exporters.size(); ++i) {
-        IExporter* exporter = config.exporters[i].get();
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::CollapsingHeader(exporter->Name(), ImGuiTreeNodeFlags_DefaultOpen)) {
-            exporter->DrawUi();
-            if (ImGui::Button("Remove")) removeIndex = static_cast<int>(i);
-        }
-        ImGui::PopID();
-    }
-    if (removeIndex >= 0) {
-        // Deconstruct() before dropping the instance, matching Loader.cs's Delete<T>
-        // closure (item.DeconstructUserInterface() + item.Deconstruct() before RemoveAt).
-        config.exporters[static_cast<size_t>(removeIndex)]->Deconstruct();
-        config.exporters.erase(config.exporters.begin() + removeIndex);
-    }
-
-    static int newExporterIndex = 0;
-    std::vector<std::string> exporterNames = exporterRegistry.Names();
-    if (!exporterNames.empty()) {
-        if (newExporterIndex >= static_cast<int>(exporterNames.size())) newExporterIndex = 0;
-        if (ImGui::BeginCombo("Add Exporter", exporterNames[static_cast<size_t>(newExporterIndex)].c_str())) {
-            for (size_t i = 0; i < exporterNames.size(); ++i) {
-                bool isSelected = static_cast<int>(i) == newExporterIndex;
-                if (ImGui::Selectable(exporterNames[i].c_str(), isSelected)) newExporterIndex = static_cast<int>(i);
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Add")) {
-            auto exporter = exporterRegistry.Create(exporterNames[static_cast<size_t>(newExporterIndex)]);
-            if (exporter) {
-                exporter->Construct(); // matches Loader.cs's Add<T> closure calling generator.Construct()
-                config.exporters.push_back(std::move(exporter));
-            }
-        }
-    }
+    // Exporters tick every loop iteration regardless of `dirty` (see IExporter.h), so
+    // an exporter-only UI change doesn't strictly need to mark the frame dirty - but
+    // it's included in `changed` anyway since it's harmless and keeps the preview/
+    // Spout output in sync immediately rather than waiting for the next tick.
+    changed |= DrawDynamicList("Exporters", "Add Exporter", config.exporters, exporterRegistry);
 
     ImGui::Separator();
 
