@@ -1,6 +1,8 @@
 #include "UiPanel.h"
 
+#include <cfloat>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -69,7 +71,7 @@ bool DrawDynamicList(const char* sectionLabel, const char* addComboLabel,
 
 UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& serializerRegistry,
                            const ExporterRegistry& exporterRegistry, const GeneratorRegistry& generatorRegistry,
-                           unsigned int previewTextureId, bool artNetConnected) {
+                           unsigned int previewTextureId, bool artNetConnected, const PerfStats& perfStats) {
     UiPanelResult result;
     bool changed = false;
 
@@ -88,6 +90,26 @@ UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& serializerRegi
         ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "ArtNet: receiving");
     } else {
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "ArtNet: no signal");
+    }
+
+    ImGui::Separator();
+
+    // --- Nerdy statistics (README feature list / TextureWriter.cs's on-screen frame
+    // stats text) - what Graphy gave the Unity app for free. Render-on-change means
+    // these numbers only move when a frame actually gets (re)rendered, unlike Unity's
+    // unconditional 60Hz stats - that's expected, not a bug: it's the whole point of
+    // this port, and idle stretches with a flat graph are the "GPU usage near 0" story
+    // made visible.
+    if (ImGui::CollapsingHeader("Nerdy Statistics", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Serialization Time: %.2f ms", perfStats.lastRenderTimeMs);
+        ImGui::Text("DMX Channels: %zu", perfStats.lastDmxChannelCount);
+        ImGui::Text("Data Throughput: %.1f B/s", perfStats.dataThroughputBytesPerSecond);
+        ImGui::Text("ArtNet Packets: %.1f /s", perfStats.artNetPacketsPerSecond);
+
+        char overlay[32];
+        std::snprintf(overlay, sizeof(overlay), "%.2f ms", perfStats.lastRenderTimeMs);
+        ImGui::PlotLines("Render Time", perfStats.renderTimeHistoryMs, perfStats.historyCount,
+                          perfStats.historyWriteIndex, overlay, 0.0f, FLT_MAX, ImVec2(0.0f, 60.0f));
     }
 
     ImGui::Separator();

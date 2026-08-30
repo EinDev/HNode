@@ -45,6 +45,16 @@ public:
 
     bool IsConnected() const { return midiOutHandle_ != 0; }
 
+    // Mirrors MIDIDMX.cs's MidiStatus(): Disconnected (no MIDI device open at all) vs.
+    // ConnectedWait (device open, but no VRChat-side world has ack'd the watchdog via
+    // the "MIDIREADY" log line within the last second - i.e. nothing is actually
+    // listening yet) vs. ConnectedSendingData (device open AND the world acked
+    // recently, so data is genuinely flowing). IsConnected() above only reflects the
+    // first of these - it was misleadingly labeled "connected" in the UI even with no
+    // VRChat world present; DrawUi() now shows this 3-state version instead.
+    enum class MidiStatus { Disconnected, ConnectedWait, ConnectedSendingData };
+    MidiStatus Status() const;
+
     // Enumerates available MIDI output device names (winmm midiOutGetDevCaps).
     static std::vector<std::string> ListDevices();
 

@@ -363,10 +363,30 @@ void MidiDmxExporter::Shutdown() {
 
 // --- UI / persistence --------------------------------------------------------
 
+MidiDmxExporter::MidiStatus MidiDmxExporter::Status() const {
+    if (midiOutHandle_ == 0) return MidiStatus::Disconnected;
+
+    long long now = std::chrono::steady_clock::now().time_since_epoch().count();
+    double elapsedSeconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::duration(now - midiLastUpdateTicks_)).count();
+    return elapsedSeconds > 1.0 ? MidiStatus::ConnectedWait : MidiStatus::ConnectedSendingData;
+}
+
 bool MidiDmxExporter::DrawUi() {
     bool changed = false;
-    ImGui::TextColored(IsConnected() ? ImVec4(0.2f, 0.9f, 0.2f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-                        IsConnected() ? "MIDI: connected" : "MIDI: disconnected");
+    switch (Status()) {
+        case MidiStatus::Disconnected:
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "MIDI: disconnected");
+            break;
+        case MidiStatus::ConnectedWait:
+            // Device port is open, but no VRChat world has ack'd the watchdog yet -
+            // this is the state the UI used to mislabel as "connected".
+            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.1f, 1.0f), "MIDI: waiting for VRChat (no MIDIREADY yet)");
+            break;
+        case MidiStatus::ConnectedSendingData:
+            ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "MIDI: connected, sending data");
+            break;
+    }
     changed |= ImGui::InputText("MIDI Device", &midiDeviceName);
     changed |= ImGui::InputInt("Channels Per Update", &channelsPerUpdate);
     changed |= ImGui::InputInt("Idle Scan Channels", &idleScanChannels);

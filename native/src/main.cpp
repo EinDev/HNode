@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <string>
 
@@ -30,6 +31,7 @@
 #include "config/ShowConfig.h"
 #include "ui/UiPanel.h"
 #include "ui/FileDialog.h"
+#include "ui/PerfStats.h"
 
 namespace {
 
@@ -93,11 +95,18 @@ int main(int argc, char** argv) {
 
     std::atomic<bool> dirty{true};
     std::atomic<bool> artNetConnected{false};
+    std::atomic<uint64_t> artNetPacketCount{0}; // for the "nerdy stats" packets/sec readout
+
+    PerfStats perfStats;
+    auto lastRenderTime = std::chrono::steady_clock::now();
+    auto lastPacketRateSampleTime = std::chrono::steady_clock::now();
+    uint64_t lastPacketRateSampleCount = 0;
 
     ArtNetReceiver artnet;
     artnet.SetCallback([&](uint16_t universe, const uint8_t* data, size_t length) {
         dmxBuffer.SetUniverse(universe, data, length);
         artNetConnected.store(true);
+        artNetPacketCount.fetch_add(1, std::memory_order_relaxed);
         dirty.store(true);
         // Wake the (otherwise event-driven) main thread promptly instead of waiting
         // out its poll timeout - this is what lets the render-on-change loop react to
@@ -164,7 +173,7 @@ int main(int argc, char** argv) {
         ImGui::NewFrame();
 
         UiPanelResult ui = DrawUiPanel(config, serializerRegistry, exporterRegistry, generatorRegistry,
-                                        frameRenderer.TextureId(), artNetConnected.load());
+                                        frameRenderer.TextureId(), artNetConnected.load(), perfStats);
         if (ui.configChanged) dirty.store(true);
 
         HWND hwnd = glfwGetWin32Window(window);
@@ -216,14 +225,45 @@ int main(int argc, char** argv) {
         frameRenderer.SetResolution(config.outputWidth, config.outputHeight);
 
         if (dirty.exchange(false)) {
+            // "Nerdy statistics" (README feature list / TextureWriter.cs's on-screen
+            // frame-time text) - measure how long this render actually took and how
+            // much wall-clock time elapsed since the last one, to derive a throughput
+            // figure the same way TextureWriter.cs did (channels / time).
+            auto renderStart = std::chrono::steady_clock::now();
             frameRenderer.Render(dmxBuffer, config.generators, *config.serializer, config.maskedChannels,
                                   config.invertMask, config.autoMaskOnZero,
                                   config.serializeUniverseCount);
+            auto renderEnd = std::chrono::steady_clock::now();
+
             spoutOutput.SendFrame(reinterpret_cast<const uint8_t*>(frameRenderer.Pixels().data()),
                                    static_cast<unsigned int>(frameRenderer.Width()),
                                    static_cast<unsigned int>(frameRenderer.Height()));
             for (auto& exporter : config.exporters) {
                 exporter->FrameRendered(frameRenderer.Pixels(), frameRenderer.Width(), frameRenderer.Height());
+            }
+
+            float renderMs = std::chrono::duration<float, std::milli>(renderEnd - renderStart).count();
+            perfStats.PushRenderSample(renderMs, frameRenderer.MergedDmx().size());
+
+            double sinceLastRenderSeconds = std::chrono::duration<double>(renderEnd - lastRenderTime).count();
+            lastRenderTime = renderEnd;
+            if (sinceLastRenderSeconds > 0.001) { // guard against a near-zero delta producing a bogus spike
+                perfStats.dataThroughputBytesPerSecond =
+                    static_cast<double>(frameRenderer.MergedDmx().size()) / sinceLastRenderSeconds;
+            }
+        }
+
+        // Sample the ArtNet packet rate roughly twice a second, independent of the
+        // render-on-change cadence above (packets can arrive with no actual value
+        // change, which still counts toward this rate even when nothing re-renders).
+        {
+            auto now = std::chrono::steady_clock::now();
+            double elapsed = std::chrono::duration<double>(now - lastPacketRateSampleTime).count();
+            if (elapsed >= 0.5) {
+                uint64_t count = artNetPacketCount.load(std::memory_order_relaxed);
+                perfStats.artNetPacketsPerSecond = static_cast<double>(count - lastPacketRateSampleCount) / elapsed;
+                lastPacketRateSampleCount = count;
+                lastPacketRateSampleTime = now;
             }
         }
 

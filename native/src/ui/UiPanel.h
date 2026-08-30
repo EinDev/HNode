@@ -8,6 +8,7 @@
 #include "../serializers/SerializerRegistry.h"
 #include "../exporters/ExporterRegistry.h"
 #include "../generators/GeneratorRegistry.h"
+#include "PerfStats.h"
 
 struct UiPanelResult {
     bool configChanged = false;  // any field edited this frame -> caller should mark dirty
@@ -23,7 +24,9 @@ struct UiPanelResult {
 // closures, including calling the exporter's own Construct()/Deconstruct() at the
 // moment it's added/removed - the caller does not need to do this separately).
 // `previewTextureId`, if non-zero, is shown as a live preview of the rendered frame
-// (the GL texture FrameRenderer maintains).
+// (the GL texture FrameRenderer maintains). `perfStats` feeds the "Nerdy statistics"
+// section (render time graph, DMX channel count, data throughput, ArtNet packet
+// rate) - read-only here, main.cpp owns and updates it.
 UiPanelResult DrawUiPanel(ShowConfig& config, SerializerRegistry& serializerRegistry,
                            const ExporterRegistry& exporterRegistry, const GeneratorRegistry& generatorRegistry,
-                           unsigned int previewTextureId, bool artNetConnected);
+                           unsigned int previewTextureId, bool artNetConnected, const PerfStats& perfStats);
