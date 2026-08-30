@@ -25,11 +25,15 @@ as before. This is an additional, independent app living alongside it.
 - All 7 serializers (`src/serializers`), selectable at runtime via `ISerializer` +
   `SerializerRegistry`: VRSL, Binary, ColorBinary, Ternary, Spiral, MDMX (aka
   BinaryStageFlight), FuralitySomna
-- 9 of the 12 generators (`src/generators`), as a dynamic add/remove list via
+- 13 of the 14 generators (`src/generators`), as a dynamic add/remove list via
   `IGenerator` + `GeneratorRegistry`: StaticValue, Remap, RemapOnDemand, Snapshot,
-  Fade, Strobe, DMXPacket, Text, Time. Animated generators (Fade/Strobe/Time) keep the
-  render-on-change loop ticking at `targetFramerate` while active instead of freezing
-  when ArtNet goes idle - see `IGenerator.h`.
+  Fade, Strobe, DMXPacket, Text, Time, SRT, LRC, ASS, TwitchChat (anonymous read-only
+  IRC, hand-rolled against raw Winsock - no equivalent to the C# reference's
+  Lexone.UnityTwitchChat dependency), and OnTime (polls the local OnTime show-timer
+  app's HTTP API via WinHTTP from a background thread, unlike the C# reference's
+  blocking-per-frame HTTP call). Animated generators (Fade/Strobe/Time/SRT/LRC/ASS/
+  TwitchChat/OnTime) keep the render-on-change loop ticking at `targetFramerate` while
+  active instead of freezing when ArtNet goes idle - see `IGenerator.h`.
 - All 4 exporters (`src/exporters`), as a dynamic add/remove list via `IExporter` +
   `ExporterRegistry`: MIDIDMX (VRC-MIDIDMX protocol over winmm, replacing DryWetMidi),
   TextFileExporter, FrameSnapshotExporter (UDP JSON command -> PNG snapshot via
@@ -53,8 +57,8 @@ as before. This is an additional, independent app living alongside it.
 ## What's intentionally out of scope (not dropped by accident)
 - Spout **input** / deserialize (the `Transcode` path) - `DeserializeChannel` isn't
   implemented on any serializer
-- 3 generators: TwitchChat (IRC), OnTime (HTTP), MAVLinkDrone (its own mini-project:
-  FTP protocol, trajectories, show files)
+- 1 generator: MAVLinkDrone (its own mini-project: FTP protocol, trajectories, show
+  files)
 - The DMX preview/chroma-key window
 - FuralitySomnaSerializer's `mergedChannels` field has no UI and isn't persisted to
   YAML yet (config-only in the C# original too, just not wired up here)

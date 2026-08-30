@@ -45,7 +45,7 @@ if errorlevel 1 (
 set INCLUDES=/I "%VCPKG_INSTALLED%\include" /I "%ROOT%src" /I "%ROOT%third_party\stb"
 set DEFINES=/DGLFW_DLL /DYAML_CPP_DLL /D_CRT_SECURE_NO_WARNINGS
 set LIBPATH=/LIBPATH:"%VCPKG_INSTALLED%\lib"
-set LIBS=glfw3dll.lib imgui.lib yaml-cpp.lib opengl32.lib ws2_32.lib gdi32.lib user32.lib shell32.lib comdlg32.lib d3d11.lib dxgi.lib winmm.lib
+set LIBS=glfw3dll.lib imgui.lib yaml-cpp.lib opengl32.lib ws2_32.lib gdi32.lib user32.lib shell32.lib comdlg32.lib d3d11.lib dxgi.lib winmm.lib winhttp.lib
 
 echo [build] Compiling...
 cl.exe /nologo /std:c++17 /EHsc /MD /W3 /O2 %DEFINES% %INCLUDES% ^
