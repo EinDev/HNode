@@ -70,11 +70,8 @@ void Drone::SetShowOrigin(float lat, float lon, float alt) {
 }
 
 Vec3 Drone::GetDronePosition() const {
-    // Phase 2 (show-file trajectory playback) isn't implemented yet - showFile_ stays
-    // null, so this always falls through to the GPS-derived position below.
-    if (showFile_ != nullptr) {
-        // Placeholder until ShowFile lands - unreachable while showFile_ is always null.
-        return Vec3{};
+    if (showFile_) {
+        return showFile_->GetPositionAtRealTime(std::chrono::system_clock::now());
     }
 
     // Port of Drone.cs's private `Position` getter - see the header's faithful-port
@@ -116,27 +113,70 @@ RGBA8 Drone::GetDroneColor() const {
         return RGBA8{255, 255, 255, 255};
     }
 
-    // Phase 2 - show-file color playback not implemented yet (showFile_ always null).
+    if (showFile_) {
+        return showFile_->GetColorAtRealTime(std::chrono::system_clock::now());
+    }
     return RGBA8{0, 0, 0, 255};
 }
 
 PyroEvent Drone::GetPyroEvent() const {
-    // Phase 3 - show-file pyro playback not implemented yet (showFile_ always null).
+    if (showFile_) {
+        return showFile_->GetPyroAtRealTime(std::chrono::system_clock::now());
+    }
     return PyroEvent{};
 }
 
 // --- parameters / show file -------------------------------------------------
 
+namespace {
+// Port of Drone.cs's private GetFromGps(). Uses UTC epoch time throughout rather than
+// the C# reference's extra TimeZoneInfo.ConvertTimeFromUtc(..., Local) step - safe to
+// drop since this value is only ever used in `elapsed = now - showStartTime`
+// subtractions (see ShowFile::GetPositionAtRealTime and friends), and both sides of
+// every such subtraction in this port are computed via std::chrono::system_clock
+// consistently - a constant absolute-zone offset cancels out identically either way.
+std::chrono::system_clock::time_point GetFromGps(int weekNumber, double seconds) {
+    using namespace std::chrono;
+    constexpr double kGpsEpochUnixSeconds = 315964800.0; // 1980-01-06 00:00:00 UTC
+    double totalSeconds = kGpsEpochUnixSeconds + static_cast<double>(weekNumber) * 7.0 * 86400.0 + seconds -
+                           18.0; // leap seconds, matches the C# reference's fixed offset
+    return system_clock::time_point(duration_cast<system_clock::duration>(duration<double>(totalSeconds)));
+}
+} // namespace
+
 void Drone::SetParameter(const std::string& name, float value) {
+    // Faithful-port quirk: the C# reference's SHOW_START_TIME handling only runs when
+    // the parameter key ALREADY existed in the dictionary - i.e. it silently skips
+    // the very first PARAM_SET for "SHOW_START_TIME" on a fresh drone (only the
+    // second and later sets actually update the show's start time). This is almost
+    // certainly an unintentional bug in the reference (`if (ContainsKey) { ...
+    // special-case... } else { Add(...) }` - the special-case should probably run
+    // either way), but it's preserved exactly as-is per this codebase's
+    // faithful-porting convention rather than "fixed" - see e.g. TimeCodeExporter's
+    // dead-framerate-code precedent for the same philosophy applied elsewhere.
+    bool existed = parameters.find(name) != parameters.end();
     parameters[name] = value;
-    // Phase 2's SHOW_START_TIME handling (resetting show program pointers) will hook
-    // in here once ShowFile exists.
+
+    if (existed && name == "SHOW_START_TIME" && showFile_) {
+        using namespace std::chrono;
+        constexpr double kGpsEpochUnixSeconds = 315964800.0;
+        double nowUnixSeconds = duration<double>(system_clock::now().time_since_epoch()).count();
+        int totalDaysSinceGpsEpoch = static_cast<int>((nowUnixSeconds - kGpsEpochUnixSeconds) / 86400.0);
+        int weekNumber = totalDaysSinceGpsEpoch / 7; // matches the C# reference's (int)totalDays / 7 truncation order
+
+        std::chrono::system_clock::time_point newShowStart = GetFromGps(weekNumber, static_cast<double>(value));
+        if (newShowStart != showFile_->showStartTime) {
+            showFile_->lightProgramPointer = 0;
+            showFile_->trajectoryProgramPointer = 0;
+        }
+        showFile_->showStartTime = newShowStart;
+    }
 }
 
 void Drone::ReloadShow() {
-    // Phase 2 - will construct a ShowFile from showFileRaw here. For now, just clear
-    // the accumulated buffer (matches the C# reference's behavior after constructing
-    // its ShowFile - the raw bytes aren't needed again once parsed).
+    showFile_ = std::make_unique<ShowFile>(showFileRaw);
+    // Raw bytes aren't needed again once parsed - matches the C# reference clearing
+    // showFileRaw immediately after constructing its ShowFile.
     showFileRaw.clear();
 }
 

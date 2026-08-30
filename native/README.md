@@ -38,13 +38,22 @@ as before. This is an additional, independent app living alongside it.
   `mavlink/c_library_v2` headers (`third_party/mavlink`) instead of hand-rolling
   packet framing/CRC tables - verified end-to-end against a real `pymavlink` client
   (heartbeat, commands/ACK, capability negotiation, param set/read, and FTP with a
-  bit-exact CRC32 match). Show-file/trajectory/light-program/pyro playback (the
-  "FTP protocol, trajectories, show files" mini-project mentioned below) isn't
-  implemented yet - FTP uploads are accepted and buffered but not parsed, so drones
-  currently only report GPS-set positions, not scripted show trajectories. Animated
-  generators (Fade/Strobe/Time/SRT/LRC/ASS/TwitchChat/OnTime/MAVLinkDroneNetwork) keep
-  the render-on-change loop ticking at `targetFramerate` while active instead of
-  freezing when ArtNet goes idle - see `IGenerator.h`.
+  bit-exact CRC32 match). Show-file playback is implemented too: an uploaded show
+  (via MAVLink FTP) is parsed into trajectory/light-program/pyro-event timelines
+  (`ByteReader`/`Trajectory`/`LightEvent`/`ShowFile` in `src/generators/mavlink`) -
+  Bitcraze/Skybrush "compressed trajectory" Bezier segments (constant/linear/cubic/
+  7th-degree), the light-program bytecode interpreter, and the (reference-flagged as
+  reverse-engineered) pyro event-list format - all scrubbed by wall-clock time
+  relative to the `SHOW_START_TIME` MAVLink parameter. Verified end-to-end with a
+  hand-built show file uploaded over FTP: the reported GPS position matched an
+  independently-computed expected value exactly after a trajectory reload. A few
+  crash-avoidance deviations from the C# reference are documented inline (`ByteReader`
+  pads instead of throwing on truncated input; unexpected light-program opcodes and
+  empty program lists degrade gracefully instead of throwing/crashing) since this
+  parses untrusted, network-uploaded bytes on a background thread. Animated generators
+  (Fade/Strobe/Time/SRT/LRC/ASS/TwitchChat/OnTime/MAVLinkDroneNetwork) keep the
+  render-on-change loop ticking at `targetFramerate` while active instead of freezing
+  when ArtNet goes idle - see `IGenerator.h`.
 - All 4 exporters (`src/exporters`), as a dynamic add/remove list via `IExporter` +
   `ExporterRegistry`: MIDIDMX (VRC-MIDIDMX protocol over winmm, replacing DryWetMidi),
   TextFileExporter, FrameSnapshotExporter (UDP JSON command -> PNG snapshot via
@@ -68,11 +77,6 @@ as before. This is an additional, independent app living alongside it.
 ## What's intentionally out of scope (not dropped by accident)
 - Spout **input** / deserialize (the `Transcode` path) - `DeserializeChannel` isn't
   implemented on any serializer
-- MAVLinkDroneNetwork's show-file playback: the FTP upload path, show-file container
-  parsing, trajectory (Bezier) decoding, light-program bytecode, and pyro event
-  decoding are all still unimplemented - see `src/generators/mavlink/Drone.h`'s
-  `showFile_` (always null for now). The MAVLink transport/telemetry/command layer
-  itself is implemented (see above).
 - The DMX preview/chroma-key window
 - FuralitySomnaSerializer's `mergedChannels` field has no UI and isn't persisted to
   YAML yet (config-only in the C# original too, just not wired up here)

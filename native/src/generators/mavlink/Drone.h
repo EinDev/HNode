@@ -17,26 +17,15 @@
 // positional transcription from the C# source.
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "Vec3.h"
 #include "../../render/PixelOps.h"
 #include "mavlink_all.h"
-
-class ShowFile; // Phase 2 - forward-declared, showFile_ stays null until implemented
-
-// Port of Assets/Plugin/Generators/MAVLinkDrone/BlockData/PyroEvent.cs - a single
-// pyro-firing event's parameters, as returned by a drone's active show (or a
-// zero-initialized default when there's no show file/pyro event active).
-struct PyroEvent {
-    double startMs = 0.0;
-    double durationMs = 0.0;
-    int pyroIndex = 0;
-    float pitch = 0.0f;
-    float yaw = 0.0f;
-    float roll = 0.0f;
-};
+#include "PyroEvent.h"
+#include "ShowFile.h"
 
 class Drone {
 public:
@@ -99,5 +88,5 @@ private:
     uint32_t remoteAddrNetworkOrder_;  // already in network byte order
     uint16_t remotePortHostOrder_;
 
-    ShowFile* showFile_ = nullptr; // Phase 2 - owned, null until a show is loaded
+    std::unique_ptr<ShowFile> showFile_; // owned, null until ReloadShow() parses an uploaded show
 };
