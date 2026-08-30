@@ -9,7 +9,8 @@ Spout frame when something actually changed (new ArtNet data, a settings edit, o
 animated generator's per-frame tick - see `IGenerator.h`) - see the render-on-change
 loop in `src/main.cpp`. Exporters are the one thing that intentionally ticks every
 loop iteration regardless (see `IExporter.h`'s cadence note) - some (MIDIDMX's
-watchdog, a future TimeCodeExporter) need a steady heartbeat independent of DMX churn.
+watchdog, TimeCodeExporter's UDP broadcast) need a steady heartbeat independent of DMX
+churn.
 
 The Unity project (everything outside `native/`) is untouched and still builds/works
 as before. This is an additional, independent app living alongside it.
@@ -29,10 +30,13 @@ as before. This is an additional, independent app living alongside it.
   Fade, Strobe, DMXPacket, Text, Time. Animated generators (Fade/Strobe/Time) keep the
   render-on-change loop ticking at `targetFramerate` while active instead of freezing
   when ArtNet goes idle - see `IGenerator.h`.
-- 3 of the 4 exporters (`src/exporters`), as a dynamic add/remove list via `IExporter`
-  + `ExporterRegistry`: MIDIDMX (VRC-MIDIDMX protocol over winmm, replacing DryWetMidi),
-  TextFileExporter, and FrameSnapshotExporter (UDP JSON command -> PNG snapshot via
-  vendored stb_image_write, JSON responses via nlohmann-json)
+- All 4 exporters (`src/exporters`), as a dynamic add/remove list via `IExporter` +
+  `ExporterRegistry`: MIDIDMX (VRC-MIDIDMX protocol over winmm, replacing DryWetMidi),
+  TextFileExporter, FrameSnapshotExporter (UDP JSON command -> PNG snapshot via
+  vendored stb_image_write, JSON responses via nlohmann-json), and TimeCodeExporter
+  (MIDI Time Code input via winmm - both quarter-frame and full-frame SysEx - rebroadcast
+  as a UDP packet on 5 fixed loopback ports; framerate is parsed but never transmitted,
+  matching the C# original's dead code there)
 - CPU pixel buffer -> GL preview texture (`src/render`)
 - Spout2 output, using the vendored SDK in `third_party/Spout` (`src/spout`)
 - `.shwcfg` YAML load/save (`src/config`), field-compatible with the Unity app's
@@ -51,8 +55,7 @@ as before. This is an additional, independent app living alongside it.
   implemented on any serializer
 - 3 generators: TwitchChat (IRC), OnTime (HTTP), MAVLinkDrone (its own mini-project:
   FTP protocol, trajectories, show files)
-- 1 exporter: TimeCodeExporter (MIDI Time Code input -> UDP broadcast)
-- The DMX preview/chroma-key window, stats overlay
+- The DMX preview/chroma-key window
 - FuralitySomnaSerializer's `mergedChannels` field has no UI and isn't persisted to
   YAML yet (config-only in the C# original too, just not wired up here)
 
