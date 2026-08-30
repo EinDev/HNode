@@ -14,6 +14,16 @@ Open source Artnet DMX to video grid node renderer, built in unity 6, created fo
 ## Install
 Get recent version of HNode in [releases tab](https://github.com/Happyrobot33/HNode/releases)
 
+## Native port
+Alongside the Unity app, [`native/`](native/) is a from-scratch native rewrite
+(GLFW + Dear ImGui + OpenGL) of the same ArtNet -> serializer -> Spout pipeline. Its
+whole point is idle GPU usage: the Unity build's engine render loop runs continuously
+even when nothing has changed, while the native build only re-renders when DMX data,
+a setting, or an animated generator actually changes something. See
+[`native/README.md`](native/README.md) for what's implemented so far and how to build
+it - it's under active development and not yet at full feature parity with the Unity
+app.
+
 ## Usage
 
 There are a few ways you can use HNode to run lights in world:

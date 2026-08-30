@@ -58,7 +58,7 @@ Requires a Visual Studio C++ toolchain (Build Tools or full VS, any recent versi
 with the "Desktop development with C++" workload) and `git`. No CMake install needed.
 
 ```
-native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp --triplet x64-windows
+native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp nlohmann-json --triplet x64-windows
 ```
 (first time only - if `native\vcpkg` doesn't exist yet, clone it first:
 `git clone https://github.com/microsoft/vcpkg native\vcpkg && native\vcpkg\bootstrap-vcpkg.bat`)

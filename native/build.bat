@@ -8,7 +8,7 @@ set BUILD_DIR=%ROOT%build
 
 if not exist "%VCPKG_INSTALLED%\include\GLFW\glfw3.h" (
     echo [build] vcpkg dependencies not found. Run:
-    echo   native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp --triplet x64-windows
+    echo   native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp nlohmann-json --triplet x64-windows
     exit /b 1
 )
 
@@ -35,7 +35,7 @@ for %%D in (. artnet dmx serializers render spout config ui exporters generators
 set SPOUT_SOURCES=
 for %%f in ("%SPOUT_DIR%\*.cpp") do set SPOUT_SOURCES=!SPOUT_SOURCES! "%%f"
 
-set INCLUDES=/I "%VCPKG_INSTALLED%\include" /I "%ROOT%src"
+set INCLUDES=/I "%VCPKG_INSTALLED%\include" /I "%ROOT%src" /I "%ROOT%third_party\stb"
 set DEFINES=/DGLFW_DLL /DYAML_CPP_DLL /D_CRT_SECURE_NO_WARNINGS
 set LIBPATH=/LIBPATH:"%VCPKG_INSTALLED%\lib"
 set LIBS=glfw3dll.lib imgui.lib yaml-cpp.lib opengl32.lib ws2_32.lib gdi32.lib user32.lib shell32.lib comdlg32.lib d3d11.lib dxgi.lib winmm.lib

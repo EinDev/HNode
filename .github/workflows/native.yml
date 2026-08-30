@@ -32,7 +32,7 @@ jobs:
             native/vcpkg/installed
             native/vcpkg/downloads
             native/vcpkg/packages
-          key: vcpkg-x64-windows-glfw3-imgui-yamlcpp-v1
+          key: vcpkg-x64-windows-glfw3-imgui-yamlcpp-json-v2
 
       - name: Clone vcpkg
         # Only native/vcpkg/{installed,downloads,packages} are cached above, not the
@@ -55,7 +55,7 @@ jobs:
         shell: cmd
 
       - name: Install dependencies
-        run: native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp --triplet x64-windows --recurse
+        run: native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp nlohmann-json --triplet x64-windows --recurse
         shell: cmd
 
       - name: Build

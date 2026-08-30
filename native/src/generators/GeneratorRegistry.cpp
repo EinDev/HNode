@@ -8,9 +8,13 @@
 #include "StrobeGenerator.h"
 #include "DmxPacketGenerator.h"
 #include "TextGenerator.h"
+#include "SrtGenerator.h"
+#include "LrcGenerator.h"
+#include "AssGenerator.h"
 
 std::vector<std::string> GeneratorRegistry::Names() const {
-    return {"StaticValue", "Remap", "RemapOnDemand", "Snapshot", "Fade", "Strobe", "DMXPacket", "Text", "Time"};
+    return {"StaticValue", "Remap",   "RemapOnDemand", "Snapshot", "Fade", "Strobe",
+            "DMXPacket",   "Text",    "Time",          "SRT",      "LRC",  "ASS"};
 }
 
 std::unique_ptr<IGenerator> GeneratorRegistry::Create(const std::string& name) const {
@@ -23,5 +27,8 @@ std::unique_ptr<IGenerator> GeneratorRegistry::Create(const std::string& name) c
     if (name == "DMXPacket") return std::make_unique<DmxPacketGenerator>();
     if (name == "Text") return std::make_unique<TextGenerator>();
     if (name == "Time") return std::make_unique<TimeGenerator>();
+    if (name == "SRT") return std::make_unique<SrtGenerator>();
+    if (name == "LRC") return std::make_unique<LrcGenerator>();
+    if (name == "ASS") return std::make_unique<AssGenerator>();
     return nullptr;
 }
