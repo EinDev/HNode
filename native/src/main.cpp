@@ -105,6 +105,11 @@ int main(int argc, char** argv) {
         glfwPostEmptyEvent();
     });
     artnet.Start(config.artNetAddress, static_cast<uint16_t>(config.artNetPort));
+    // Lets consoles (QLC+, etc.) discover HNode via ArtPoll instead of needing its IP
+    // typed in by hand - see ArtNetReceiver.h's header comment. The long name embeds
+    // the Spout output name so multiple HNode instances are distinguishable in a
+    // console's node list; re-applied below whenever spoutOutputName changes.
+    artnet.SetNodeInfo("HNode", "HNode (native) - " + config.spoutOutputName);
 
     // Captured BEFORE the CLI config-file load below (if any), so that if it changes
     // artNetAddress/artNetPort/spoutOutputName, the main loop's normal "re-apply only
@@ -204,6 +209,7 @@ int main(int argc, char** argv) {
         }
         if (config.spoutOutputName != appliedSpoutName) {
             spoutOutput.SetName(config.spoutOutputName);
+            artnet.SetNodeInfo("HNode", "HNode (native) - " + config.spoutOutputName);
             appliedSpoutName = config.spoutOutputName;
         }
 
@@ -228,6 +234,13 @@ int main(int argc, char** argv) {
         // above bounds this to a ~4Hz minimum even when fully idle, enough to satisfy
         // e.g. MIDIDMX.cs's 1-second watchdog timeout without spinning the GPU.
         for (auto& exporter : config.exporters) {
+            // Idempotent, cheap (a std::function reassignment) - runs every iteration
+            // so a newly added/loaded exporter (e.g. FrameSnapshotExporter) picks this
+            // up within one frame without needing a hook at every add/load call site.
+            exporter->SetDirtyCallback([&dirty, window]() {
+                dirty.store(true);
+                glfwPostEmptyEvent();
+            });
             exporter->InitFrame(frameRenderer.MergedDmx());
             exporter->CompleteFrame(frameRenderer.MergedDmx());
         }

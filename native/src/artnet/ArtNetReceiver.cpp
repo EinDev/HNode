@@ -3,15 +3,53 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include <algorithm>
+#include <array>
 #include <cstring>
 
 namespace {
 
 // ID(8) + OpCode(2) + ProtVer(2) + Sequence(1) + Physical(1) + Universe(2) + Length(2)
 constexpr size_t kArtNetHeaderSize = 18;
+// ID(8) + OpCode(2) + ProtVer(2) - the header shared by both ArtDMX and ArtPoll, enough
+// to identify a packet's opcode before dispatching to type-specific parsing/validation.
+constexpr size_t kArtNetHeaderMinSize = 12;
+// ArtPoll's own minimum size: shared header(12) + TalkToMe(1) + Priority(1).
+constexpr size_t kArtPollMinSize = 14;
 constexpr uint16_t kOpCodeDmx = 0x5000;
+constexpr uint16_t kOpCodePoll = 0x2000;
 constexpr uint16_t kProtVer = 14;
 constexpr char kArtNetId[8] = {'A', 'r', 't', '-', 'N', 'e', 't', '\0'};
+
+// Best-effort lookup of one of this machine's IPv4 addresses, in network byte order (i.e.
+// the 4 bytes as they'd appear in a dotted-quad address). Used to populate ArtPollReply's
+// IP-address/BindIp fields. Returns false (leaving outBytes untouched) if the lookup fails
+// for any reason - callers should fall back to 0.0.0.0 rather than treat this as fatal.
+bool GetLocalIPv4(uint8_t outBytes[4]) {
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) != 0) {
+        return false;
+    }
+
+    hostent* host = gethostbyname(hostname);
+    if (host == nullptr || host->h_addrtype != AF_INET || host->h_addr_list == nullptr ||
+        host->h_addr_list[0] == nullptr) {
+        return false;
+    }
+
+    std::memcpy(outBytes, host->h_addr_list[0], 4);
+    return true;
+}
+
+// Zero-fills `fieldSize` bytes starting at `dest`, then copies in up to `fieldSize - 1`
+// bytes of `src`, leaving at least the last byte (and any unused trailing bytes) as the
+// zero/null terminator - used for ArtPollReply's ShortName/LongName/NodeReport fields.
+void PackString(uint8_t* dest, size_t fieldSize, const std::string& src) {
+    std::memset(dest, 0, fieldSize);
+    // Parenthesized to dodge the min() macro pulled in by <windows.h> (via winsock2.h).
+    size_t copyLen = (std::min)(src.size(), fieldSize - 1);
+    std::memcpy(dest, src.data(), copyLen);
+}
 
 } // namespace
 
@@ -23,6 +61,12 @@ ArtNetReceiver::~ArtNetReceiver() {
 
 void ArtNetReceiver::SetCallback(DmxCallback callback) {
     callback_ = std::move(callback);
+}
+
+void ArtNetReceiver::SetNodeInfo(const std::string& shortName, const std::string& longName) {
+    std::lock_guard<std::mutex> lock(nodeInfoMutex_);
+    shortName_ = shortName;
+    longName_ = longName;
 }
 
 bool ArtNetReceiver::Start(const std::string& bindAddress, uint16_t port) {
@@ -119,7 +163,7 @@ void ArtNetReceiver::ReceiveLoop(std::string bindAddress, uint16_t port) {
             break;
         }
 
-        if (received < static_cast<int>(kArtNetHeaderSize)) {
+        if (received < static_cast<int>(kArtNetHeaderMinSize)) {
             continue;
         }
 
@@ -129,13 +173,29 @@ void ArtNetReceiver::ReceiveLoop(std::string bindAddress, uint16_t port) {
 
         // OpCode: little-endian.
         uint16_t opCode = static_cast<uint16_t>(buffer[8]) | (static_cast<uint16_t>(buffer[9]) << 8);
+
+        // ProtVer: big-endian (network order) - shared by both ArtDMX and ArtPoll.
+        uint16_t protVer = (static_cast<uint16_t>(buffer[10]) << 8) | static_cast<uint16_t>(buffer[11]);
+        if (protVer != kProtVer) {
+            continue;
+        }
+
+        if (opCode == kOpCodePoll) {
+            // ArtPoll: header(12) + TalkToMe(1) + Priority(1) = 14 bytes minimum. Both
+            // fields are ignored - we always reply once per poll (see ArtNetReceiver.h's
+            // header comment for why this differs from the reference Unity implementation).
+            if (received < static_cast<int>(kArtPollMinSize)) {
+                continue;
+            }
+            SendPollReply(&fromAddr);
+            continue;
+        }
+
         if (opCode != kOpCodeDmx) {
             continue;
         }
 
-        // ProtVer: big-endian (network order).
-        uint16_t protVer = (static_cast<uint16_t>(buffer[10]) << 8) | static_cast<uint16_t>(buffer[11]);
-        if (protVer != kProtVer) {
+        if (received < static_cast<int>(kArtNetHeaderSize)) {
             continue;
         }
 
@@ -158,4 +218,101 @@ void ArtNetReceiver::ReceiveLoop(std::string bindAddress, uint16_t port) {
             callback_(universe, buffer + kArtNetHeaderSize, length);
         }
     }
+}
+
+void ArtNetReceiver::SendPollReply(const void* senderAddr) {
+    const sockaddr_in* dest = static_cast<const sockaddr_in*>(senderAddr);
+
+    // Fixed-format ~239-byte ArtPollReply packet (Art-Net spec). Zero-initialize first so
+    // every field this receiver doesn't meaningfully populate (port declarations, spares,
+    // etc.) comes out as a compliant zero rather than uninitialized garbage.
+    constexpr size_t kReplySize = 239;
+    std::array<uint8_t, kReplySize> packet{};
+
+    // ID.
+    std::memcpy(packet.data(), kArtNetId, sizeof(kArtNetId));
+
+    // OpCode 0x2100, little-endian.
+    packet[8] = 0x00;
+    packet[9] = 0x21;
+
+    // IP address, offset 10-13: 4 bytes, network byte order (dotted-quad order). Falls
+    // back to 0.0.0.0 (already zeroed) if the local-address lookup fails.
+    uint8_t ipBytes[4] = {0, 0, 0, 0};
+    GetLocalIPv4(ipBytes);
+    std::memcpy(&packet[10], ipBytes, 4);
+
+    // Port 6454, little-endian.
+    packet[14] = 0x36;
+    packet[15] = 0x19;
+
+    // VersInfo, little-endian - version "1".
+    packet[16] = 0x00;
+    packet[17] = 0x01;
+
+    // NetSwitch(18)/SubSwitch(19): 0, HNode doesn't declare per-port universe addressing.
+
+    // Oem, little-endian - 0xFFFF ("Oem Unknown"), the standard placeholder for a
+    // non-registered/hobbyist implementation.
+    packet[20] = 0xFF;
+    packet[21] = 0xFF;
+
+    // UbeaVersion(22): 0, no UBEA.
+
+    // Status1(23): 0x00. Left at the simplest safe minimal value rather than asserting
+    // specific Status1 bit semantics (e.g. an "all parameters programmed by network"
+    // indicator) this receiver has no real basis to claim.
+    packet[23] = 0x00;
+
+    // EstaMan(24-25), little-endian: 0x0000, no ESTA manufacturer code registered.
+
+    // ShortName/LongName (mutex-protected copies - SetNodeInfo may run concurrently on
+    // another thread), truncated + null-padded to fit their fixed field widths.
+    std::string shortName;
+    std::string longName;
+    {
+        std::lock_guard<std::mutex> lock(nodeInfoMutex_);
+        shortName = shortName_;
+        longName = longName_;
+    }
+    PackString(&packet[26], 18, shortName);
+    PackString(&packet[44], 64, longName);
+
+    // NodeReport: short human-readable status string.
+    PackString(&packet[108], 64, std::string("#0001 [0001] HNode ready"));
+
+    // NumPorts(172-173), PortTypes/GoodInput/GoodOutput/SwIn/SwOut(174-193), SwVideo(194),
+    // SwMacro(195), SwRemote(196), Spare(197-199): all 0 - HNode declares zero DMX
+    // input/output "ports" in the patchable sense; already zero from zero-initialization.
+
+    // Style(200): 0 (StNode - an Art-Net to DMX512 device); already zero.
+
+    // MAC(201-206): not looked up, left zero-filled (already zero) - GetLocalIPv4's
+    // gethostbyname()-based lookup doesn't expose a MAC and a separate lookup isn't
+    // worth the added complexity for discovery purposes.
+
+    // BindIp, offset 207-210: same as the IP-address field above.
+    std::memcpy(&packet[207], ipBytes, 4);
+
+    // BindIndex(211): 1.
+    packet[211] = 1;
+
+    // Status2(212): 0x08 (bit3 set - "Node supports 15 bit Port-Address (Art-Net 3/4)"),
+    // a reasonable and truthful minimal claim since this receiver already accepts a full
+    // 15-bit universe value.
+    packet[212] = 0x08;
+
+    // Remaining bytes (213-238, Status3/Filler/etc.): all zero, already zero from
+    // zero-initialization - pads the packet out to exactly 239 bytes total.
+
+    sockaddr_in dst{};
+    dst.sin_family = AF_INET;
+    dst.sin_port = dest->sin_port;
+    dst.sin_addr = dest->sin_addr;
+
+    SOCKET sock = static_cast<SOCKET>(socketHandle_);
+    // Best-effort UDP send, matching this codebase's general philosophy elsewhere (e.g.
+    // MidiDmxExporter's watchdog sends) - silently drop on failure, nothing to log/retry.
+    sendto(sock, reinterpret_cast<const char*>(packet.data()), static_cast<int>(packet.size()), 0,
+           reinterpret_cast<sockaddr*>(&dst), sizeof(dst));
 }

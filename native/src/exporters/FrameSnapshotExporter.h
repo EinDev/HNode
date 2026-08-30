@@ -6,6 +6,7 @@
 // `response_port`.
 #include "IExporter.h"
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -38,7 +39,7 @@ public:
     // calls it when a save_frame command arrives, so a fresh frame actually gets
     // rendered (and thus FrameRendered() called) promptly instead of only on the next
     // unrelated DMX change.
-    void SetDirtyCallback(std::function<void()> callback) { requestDirty_ = std::move(callback); }
+    void SetDirtyCallback(std::function<void()> callback) override { requestDirty_ = std::move(callback); }
 
 private:
     void ListenLoop();

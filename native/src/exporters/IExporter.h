@@ -15,6 +15,7 @@
 // stale time sync) if starved for long idle stretches. Only the pixel
 // serialize/upload/Spout-send path is dirty-gated; exporters are not.
 #include <cstdint>
+#include <functional>
 #include <vector>
 #include "../render/PixelOps.h"
 
@@ -63,4 +64,11 @@ public:
     // should NOT re-check the tag). Default: no fields to persist.
     virtual void ReadYaml(const YAML::Node& node) { (void)node; }
     virtual void WriteYaml(YAML::Emitter& out) const { (void)out; }
+
+    // main.cpp calls this on every exporter every loop iteration (cheap - just a
+    // std::function reassignment) with a callback that marks the render loop dirty
+    // and wakes it. Default no-op; only exporters that can receive an external event
+    // needing a fresh frame rendered before they act (e.g. FrameSnapshotExporter's
+    // UDP "save_frame" command, which must not save a stale frame) override this.
+    virtual void SetDirtyCallback(std::function<void()> callback) { (void)callback; }
 };
