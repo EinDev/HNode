@@ -37,11 +37,16 @@ jobs:
       - name: Clone vcpkg
         # Only native/vcpkg/{installed,downloads,packages} are cached above, not the
         # tool checkout itself - but a cache hit still creates native/vcpkg (containing
-        # those subfolders), so `git clone` into it unconditionally fails with
-        # "destination path already exists". Guard on the tool checkout specifically.
+        # those subfolders), and `git clone` refuses to target any non-empty directory
+        # (even one with no .git in it). So clone into a scratch dir and copy its
+        # contents (including .git) into native/vcpkg, merging with whatever the cache
+        # restored rather than cloning directly into it.
         run: |
           if (-not (Test-Path "native/vcpkg/.git")) {
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git native/vcpkg
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg-tool-tmp
+            New-Item -ItemType Directory -Force -Path native/vcpkg | Out-Null
+            Copy-Item -Path vcpkg-tool-tmp\* -Destination native/vcpkg -Recurse -Force
+            Remove-Item -Recurse -Force vcpkg-tool-tmp
           }
         shell: pwsh
 

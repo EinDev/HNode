@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 
+#include <yaml-cpp/yaml.h>
+#include "imgui.h"
+#include "imgui_stdlib.h"
+
 namespace {
 
 // MIDIDMX.cs's ControlCode enum (lines ~38-53). Always sent on MIDI channel 15 with
@@ -355,4 +359,36 @@ void MidiDmxExporter::Reconnect() {
 
 void MidiDmxExporter::Shutdown() {
     CloseDevice();
+}
+
+// --- UI / persistence --------------------------------------------------------
+
+bool MidiDmxExporter::DrawUi() {
+    bool changed = false;
+    ImGui::TextColored(IsConnected() ? ImVec4(0.2f, 0.9f, 0.2f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+                        IsConnected() ? "MIDI: connected" : "MIDI: disconnected");
+    changed |= ImGui::InputText("MIDI Device", &midiDeviceName);
+    changed |= ImGui::InputInt("Channels Per Update", &channelsPerUpdate);
+    changed |= ImGui::InputInt("Idle Scan Channels", &idleScanChannels);
+    if (ImGui::Button("Reconnect MIDI Device")) {
+        Reconnect();
+    }
+    return changed;
+}
+
+void MidiDmxExporter::ReadYaml(const YAML::Node& node) {
+    try {
+        if (node["midiDevice"]) midiDeviceName = node["midiDevice"].as<std::string>();
+        if (node["channelsPerUpdate"]) channelsPerUpdate = node["channelsPerUpdate"].as<int>();
+        if (node["idleScanChannels"]) idleScanChannels = node["idleScanChannels"].as<int>();
+        if (node["useEditorLog"]) useEditorLog = node["useEditorLog"].as<bool>();
+    } catch (const YAML::Exception&) {
+    }
+}
+
+void MidiDmxExporter::WriteYaml(YAML::Emitter& out) const {
+    out << YAML::Key << "midiDevice" << YAML::Value << midiDeviceName;
+    out << YAML::Key << "channelsPerUpdate" << YAML::Value << channelsPerUpdate;
+    out << YAML::Key << "idleScanChannels" << YAML::Value << idleScanChannels;
+    out << YAML::Key << "useEditorLog" << YAML::Value << useEditorLog;
 }

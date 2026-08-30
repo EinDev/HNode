@@ -6,6 +6,7 @@
 
 #include "../serializers/SerializerRegistry.h"
 #include "../serializers/VrslSerializer.h"
+#include "../exporters/ExporterRegistry.h"
 
 namespace {
 
@@ -84,9 +85,10 @@ bool TryAs(const YAML::Node& node, T& out) {
 
 } // namespace
 
-bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegistry& registry, std::string& error) {
+bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegistry& serializerRegistry,
+                       const ExporterRegistry& exporterRegistry, std::string& error) {
     out = ShowConfig{};
-    out.serializer = registry.Default();
+    out.serializer = serializerRegistry.Default();
 
     YAML::Node root;
     try {
@@ -141,7 +143,8 @@ bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegist
         const std::string& tag = serializerNode.Tag();
         bool isDefaultTag = tag.empty() || tag == "?" || tag == "!" || tag == "tag:yaml.org,2002:map";
 
-        ISerializer* resolved = isDefaultTag ? registry.Default() : registry.Find(tag.substr(tag.find_last_of('!') + 1));
+        ISerializer* resolved = isDefaultTag ? serializerRegistry.Default()
+                                              : serializerRegistry.Find(tag.substr(tag.find_last_of('!') + 1));
         if (resolved) out.serializer = resolved;
 
         // Only VRSL currently has any config-file-backed fields (see
@@ -156,6 +159,25 @@ bool ShowConfig::Load(const std::string& path, ShowConfig& out, SerializerRegist
                 VrslSerializer::OutputConfig parsed;
                 if (ParseOutputConfig(outputConfigText, parsed)) vrsl->outputConfig = parsed;
             }
+        }
+    }
+
+    // Each exporter is tagged with its type name (e.g. "!MIDIDMX"); unrecognized tags
+    // (an exporter type this native port doesn't have yet) are skipped, not errors,
+    // so a config with e.g. a FrameSnapshotExporter block still loads its other
+    // exporters and every other field.
+    YAML::Node exportersNode = root["exporters"];
+    if (exportersNode && exportersNode.IsSequence()) {
+        for (const auto& item : exportersNode) {
+            if (!item.IsMap()) continue;
+            std::string tag = item.Tag();
+            std::string name = tag.substr(tag.find_last_of('!') + 1);
+
+            auto exporter = exporterRegistry.Create(name);
+            if (!exporter) continue;
+
+            exporter->ReadYaml(item);
+            out.exporters.push_back(std::move(exporter));
         }
     }
 
@@ -201,6 +223,14 @@ bool ShowConfig::Save(const std::string& path, std::string& error) const {
         emitter << YAML::Key << "outputConfig" << YAML::Value << VrslSerializer::ToString(vrsl->outputConfig);
     }
     emitter << YAML::EndMap;
+
+    emitter << YAML::Key << "exporters" << YAML::Value << YAML::BeginSeq;
+    for (const auto& exporter : exporters) {
+        emitter << YAML::LocalTag(exporter->Name()) << YAML::BeginMap;
+        exporter->WriteYaml(emitter);
+        emitter << YAML::EndMap;
+    }
+    emitter << YAML::EndSeq;
 
     emitter << YAML::EndMap;
 

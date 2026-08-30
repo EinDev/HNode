@@ -15,6 +15,7 @@
 #include <GLFW/glfw3native.h>
 
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <string>
 
@@ -23,60 +24,35 @@
 #include "serializers/SerializerRegistry.h"
 #include "render/FrameRenderer.h"
 #include "spout/SpoutOutput.h"
-#include "exporters/MidiDmxExporter.h"
+#include "exporters/ExporterRegistry.h"
 #include "config/ShowConfig.h"
 #include "ui/UiPanel.h"
+#include "ui/FileDialog.h"
 
 namespace {
 
-// Windows narrow<->wide conversion uses the ANSI codepage (CP_ACP) rather than UTF-8,
-// to match what the CRT's narrow std::ifstream/std::ofstream (used by ShowConfig)
-// actually opens on this platform. Non-ASCII paths are a known Phase 1 limitation.
-std::string WideToNarrow(const std::wstring& wide) {
-    if (wide.empty()) return {};
-    int size = WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (size <= 0) return {};
-    std::string out(static_cast<size_t>(size - 1), '\0');
-    WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, out.data(), size, nullptr, nullptr);
-    return out;
-}
+// Matches Loader.cs's CONFIG_FILE_REGEX ("-{1,2}[Cc]onfig-[Ff]ile="): an argument
+// starting with 1-2 dashes, then "config-file=" case-insensitive only on the two
+// letters the C# regex itself allowed to vary, followed by the path.
+bool TryParseConfigFileArg(const std::string& arg, std::string& outPath) {
+    size_t start = 0;
+    if (arg.size() > 0 && arg[0] == '-') start = 1;
+    if (arg.size() > start && arg[start] == '-') start++;
 
-bool ShowSaveDialog(HWND owner, std::wstring& outPath) {
-    wchar_t buffer[MAX_PATH] = L"NewShowConfig.shwcfg";
-    OPENFILENAMEW ofn{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = owner;
-    ofn.lpstrFilter = L"Show Configurations (*.shwcfg)\0*.shwcfg\0\0";
-    ofn.lpstrFile = buffer;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrDefExt = L"shwcfg";
-    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetSaveFileNameW(&ofn)) {
-        outPath = buffer;
-        return true;
-    }
-    return false;
-}
+    const std::string kPrefixLower = "config-file=";
+    if (arg.size() < start + kPrefixLower.size()) return false;
 
-bool ShowOpenDialog(HWND owner, std::wstring& outPath) {
-    wchar_t buffer[MAX_PATH] = L"";
-    OPENFILENAMEW ofn{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = owner;
-    ofn.lpstrFilter = L"Show Configurations (*.shwcfg)\0*.shwcfg\0\0";
-    ofn.lpstrFile = buffer;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetOpenFileNameW(&ofn)) {
-        outPath = buffer;
-        return true;
-    }
-    return false;
+    std::string candidate = arg.substr(start, kPrefixLower.size());
+    for (char& c : candidate) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+    if (candidate != kPrefixLower) return false;
+
+    outPath = arg.substr(start + kPrefixLower.size());
+    return true;
 }
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     glfwSetErrorCallback([](int code, const char* desc) {
         std::fprintf(stderr, "GLFW error %d: %s\n", code, desc);
     });
@@ -100,8 +76,9 @@ int main() {
     ImGui_ImplOpenGL3_Init("#version 130");
 
     SerializerRegistry serializerRegistry;
+    ExporterRegistry exporterRegistry;
 
-    ShowConfig config; // starts from defaults; use Load to open a .shwcfg.
+    ShowConfig config; // starts from defaults (no exporters, VRSL serializer); use Load to open a .shwcfg.
     config.serializer = serializerRegistry.Default();
 
     DmxBuffer dmxBuffer;
@@ -110,9 +87,6 @@ int main() {
 
     SpoutOutput spoutOutput;
     spoutOutput.SetName(config.spoutOutputName);
-
-    MidiDmxExporter midiExporter;
-    midiExporter.Reconnect();
 
     std::atomic<bool> dirty{true};
     std::atomic<bool> artNetConnected{false};
@@ -129,9 +103,31 @@ int main() {
     });
     artnet.Start(config.artNetAddress, static_cast<uint16_t>(config.artNetPort));
 
+    // Captured BEFORE the CLI config-file load below (if any), so that if it changes
+    // artNetAddress/artNetPort/spoutOutputName, the main loop's normal "re-apply only
+    // if changed" diff on its first iteration naturally picks up the difference and
+    // rebinds ArtNet/renames the Spout sender - rather than silently leaving the
+    // sockets bound to the pre-load defaults.
     std::string appliedArtNetAddress = config.artNetAddress;
     int appliedArtNetPort = config.artNetPort;
     std::string appliedSpoutName = config.spoutOutputName;
+
+    // CLI config file passthrough (Loader.cs's ReadCLIConfigFile).
+    for (int i = 1; i < argc; ++i) {
+        std::string configPath;
+        if (!TryParseConfigFileArg(argv[i], configPath)) continue;
+
+        ShowConfig loaded;
+        std::string error;
+        if (ShowConfig::Load(configPath, loaded, serializerRegistry, exporterRegistry, error)) {
+            for (auto& exporter : loaded.exporters) exporter->Construct();
+            config = std::move(loaded);
+            dirty.store(true);
+        } else {
+            std::fprintf(stderr, "Failed to load CLI config file '%s': %s\n", configPath.c_str(), error.c_str());
+        }
+        break;
+    }
 
     while (!glfwWindowShouldClose(window)) {
         // Blocks until input arrives, glfwPostEmptyEvent() is called (by the ArtNet
@@ -144,16 +140,15 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        UiPanelResult ui = DrawUiPanel(config, serializerRegistry, midiExporter,
+        UiPanelResult ui = DrawUiPanel(config, serializerRegistry, exporterRegistry,
                                         frameRenderer.TextureId(), artNetConnected.load());
         if (ui.configChanged) dirty.store(true);
-        if (ui.requestMidiReconnect) midiExporter.Reconnect();
 
         HWND hwnd = glfwGetWin32Window(window);
 
         if (ui.requestSave) {
             std::wstring path;
-            if (ShowSaveDialog(hwnd, path)) {
+            if (ShowSaveFileDialog(hwnd, "Show Configurations", "shwcfg", "NewShowConfig.shwcfg", path)) {
                 std::string error;
                 if (!config.Save(WideToNarrow(path), error)) {
                     std::fprintf(stderr, "Save failed: %s\n", error.c_str());
@@ -162,11 +157,15 @@ int main() {
         }
         if (ui.requestLoad) {
             std::wstring path;
-            if (ShowOpenDialog(hwnd, path)) {
+            if (ShowOpenFileDialog(hwnd, "Show Configurations", "shwcfg", path)) {
                 std::string error;
                 ShowConfig loaded;
-                if (ShowConfig::Load(WideToNarrow(path), loaded, serializerRegistry, error)) {
-                    config = loaded;
+                if (ShowConfig::Load(WideToNarrow(path), loaded, serializerRegistry, exporterRegistry, error)) {
+                    // Mirrors Loader.cs's UnloadShowConf()/LoadShowConf(): deconstruct
+                    // the outgoing exporters, construct the incoming ones.
+                    for (auto& exporter : config.exporters) exporter->Deconstruct();
+                    for (auto& exporter : loaded.exporters) exporter->Construct();
+                    config = std::move(loaded);
                     dirty.store(true);
                 } else {
                     std::fprintf(stderr, "Load failed: %s\n", error.c_str());
@@ -196,15 +195,21 @@ int main() {
             spoutOutput.SendFrame(reinterpret_cast<const uint8_t*>(frameRenderer.Pixels().data()),
                                    static_cast<unsigned int>(frameRenderer.Width()),
                                    static_cast<unsigned int>(frameRenderer.Height()));
+            for (auto& exporter : config.exporters) {
+                exporter->FrameRendered(frameRenderer.Pixels(), frameRenderer.Width(), frameRenderer.Height());
+            }
         }
 
-        // Unlike the Spout/preview path above, MIDIDMX needs a steady watchdog
-        // heartbeat regardless of whether DMX data actually changed (the VRChat-side
-        // receiver times out without one) - so this runs every loop iteration, not
-        // just on `dirty`. glfwWaitEventsTimeout(0.25) above bounds this to a ~4Hz
-        // minimum even when fully idle, which is enough to keep MIDIDMX.cs's 1-second
-        // watchdog timeout satisfied without spinning the GPU.
-        midiExporter.CompleteFrame(frameRenderer.MergedDmx());
+        // Unlike the Spout/preview path above, exporters need a steady per-frame tick
+        // regardless of whether DMX data actually changed (e.g. MIDIDMX's watchdog,
+        // TimeCodeExporter's UDP broadcast - see IExporter.h's cadence note) - so this
+        // runs every loop iteration, not just on `dirty`. glfwWaitEventsTimeout(0.25)
+        // above bounds this to a ~4Hz minimum even when fully idle, enough to satisfy
+        // e.g. MIDIDMX.cs's 1-second watchdog timeout without spinning the GPU.
+        for (auto& exporter : config.exporters) {
+            exporter->InitFrame(frameRenderer.MergedDmx());
+            exporter->CompleteFrame(frameRenderer.MergedDmx());
+        }
 
         ImGui::Render();
         int displayW, displayH;
@@ -219,7 +224,7 @@ int main() {
 
     artnet.Stop();
     spoutOutput.Release();
-    midiExporter.Shutdown();
+    for (auto& exporter : config.exporters) exporter->Deconstruct();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

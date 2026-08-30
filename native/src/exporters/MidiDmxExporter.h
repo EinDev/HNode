@@ -8,14 +8,17 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "IExporter.h"
 
-class MidiDmxExporter {
+class MidiDmxExporter : public IExporter {
 public:
     MidiDmxExporter();
-    ~MidiDmxExporter();
+    ~MidiDmxExporter() override;
 
     MidiDmxExporter(const MidiDmxExporter&) = delete;
     MidiDmxExporter& operator=(const MidiDmxExporter&) = delete;
+
+    const char* Name() const override { return "MIDIDMX"; }
 
     // User-configurable fields (mirror MIDIDMX.cs's public fields of the same role).
     std::string midiDeviceName = "loopMIDI Port";
@@ -24,14 +27,21 @@ public:
     bool useEditorLog = false;     // native port has no Unity Editor.log; kept for config-field parity, always uses the VRChat player log
 
     // (Re)opens `midiDeviceName` and resets protocol state (bank, watchdog, log
-    // tailing). Call once at startup and whenever midiDeviceName is edited.
+    // tailing). Construct()/DrawUi()'s "Reconnect MIDI Device" button both call this.
     void Reconnect();
 
+    void Construct() override { Reconnect(); }
+    void Deconstruct() override { Shutdown(); }
     void Shutdown();
 
-    // Call once per rendered ("dirty") frame with the full merged DMX buffer -
-    // equivalent to MIDIDMX.cs's CompleteFrame(ref channelValues).
-    void CompleteFrame(const std::vector<uint8_t>& channelValues);
+    // Equivalent to MIDIDMX.cs's CompleteFrame(ref channelValues). Note: per
+    // IExporter.h, this (like all exporters) ticks every main-loop iteration, not
+    // just on rendered/dirty frames - MIDIDMX's watchdog needs a steady heartbeat.
+    void CompleteFrame(const std::vector<uint8_t>& channelValues) override;
+
+    bool DrawUi() override;
+    void ReadYaml(const YAML::Node& node) override;
+    void WriteYaml(YAML::Emitter& out) const override;
 
     bool IsConnected() const { return midiOutHandle_ != 0; }
 

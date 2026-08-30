@@ -10,11 +10,14 @@
 // VRSL's gammaCorrection) are only read/written for the serializers that have any -
 // see ShowConfig.cpp.
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 #include "../serializers/ISerializer.h"
+#include "../exporters/IExporter.h"
 
 class SerializerRegistry;
+class ExporterRegistry;
 
 struct DmxChannelRange {
     // Global (flat) channel indices, inclusive on both ends - simplified from
@@ -35,6 +38,12 @@ struct ShowConfig {
     // least the registry's default if the file's tag is missing/unrecognized).
     ISerializer* serializer = nullptr;
 
+    // Owning, unlike `serializer`: each exporter is its own independently-configured
+    // instance (dynamic list, mirrors ShowConfiguration.cs's `List<IExporter> Exporters`
+    // and the add/remove/reorder InterfaceList UI) rather than a persistent
+    // single-selection registry entry. This makes ShowConfig move-only.
+    std::vector<std::unique_ptr<IExporter>> exporters;
+
     int serializeUniverseCount = INT32_MAX;
     std::vector<DmxChannelRange> maskedChannels;
     bool invertMask = false;
@@ -51,7 +60,8 @@ struct ShowConfig {
     // Parses `path` into `out`, leaving fields at their defaults when absent from the
     // file (so a config missing a field just falls back rather than failing to load).
     // Returns false and fills `error` on a hard parse failure (bad YAML, unreadable file).
-    static bool Load(const std::string& path, ShowConfig& out, SerializerRegistry& registry, std::string& error);
+    static bool Load(const std::string& path, ShowConfig& out, SerializerRegistry& serializerRegistry,
+                      const ExporterRegistry& exporterRegistry, std::string& error);
 
     // Writes `this` to `path` as .shwcfg YAML, preceded by the same explanatory header
     // comment Loader.cs prepends (channel format / equation note) for familiarity.
