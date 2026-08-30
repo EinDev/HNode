@@ -35,6 +35,13 @@ for %%D in (. artnet dmx serializers render spout config ui exporters generators
 set SPOUT_SOURCES=
 for %%f in ("%SPOUT_DIR%\*.cpp") do set SPOUT_SOURCES=!SPOUT_SOURCES! "%%f"
 
+echo [build] Compiling app icon resource...
+rc.exe /nologo /fo "%BUILD_DIR%\app.res" "%ROOT%resources\app.rc"
+if errorlevel 1 (
+    echo [build] Resource compile FAILED.
+    exit /b 1
+)
+
 set INCLUDES=/I "%VCPKG_INSTALLED%\include" /I "%ROOT%src" /I "%ROOT%third_party\stb"
 set DEFINES=/DGLFW_DLL /DYAML_CPP_DLL /D_CRT_SECURE_NO_WARNINGS
 set LIBPATH=/LIBPATH:"%VCPKG_INSTALLED%\lib"
@@ -42,7 +49,7 @@ set LIBS=glfw3dll.lib imgui.lib yaml-cpp.lib opengl32.lib ws2_32.lib gdi32.lib u
 
 echo [build] Compiling...
 cl.exe /nologo /std:c++17 /EHsc /MD /W3 /O2 %DEFINES% %INCLUDES% ^
-    !SOURCES! !SPOUT_SOURCES! ^
+    !SOURCES! !SPOUT_SOURCES! "%BUILD_DIR%\app.res" ^
     /Fo"%BUILD_DIR%\\" /Fe"%BUILD_DIR%\HNode.exe" ^
     /link %LIBPATH% %LIBS% /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup
 

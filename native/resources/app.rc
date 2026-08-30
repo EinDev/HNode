@@ -1,0 +1,6 @@
+// Windows resource script: embeds app.ico as the executable's icon. Resource ID 1 is
+// the Win32 convention both Explorer (lowest-ID icon group = the .exe file's shown
+// icon) and GLFW (its Win32 backend loads MAKEINTRESOURCE(1) as the window/taskbar
+// icon by default - see win32_platform.h's GLFW_ICON) pick up automatically, so no
+// runtime glfwSetWindowIcon() call is needed alongside this.
+1 ICON "app.ico"
