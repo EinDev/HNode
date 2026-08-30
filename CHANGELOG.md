@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/EinDev/HNode/compare/v0.4.0...v0.5.0) (2026-08-30)
+
+
+### Features
+
+* implement MAVLink show-file playback (Phase 2/3) ([79fb660](https://github.com/EinDev/HNode/commit/79fb6605c1c73a2398ed6d28d409864d89ed0175))
+* implement Spout input / Transcode (DeserializeChannel) ([55547b2](https://github.com/EinDev/HNode/commit/55547b262619bda203d377bf96ca56b26b3afae5))
+
 ## [0.4.0](https://github.com/EinDev/HNode/compare/v0.3.0...v0.4.0) (2026-08-30)
 
 
