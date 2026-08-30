@@ -103,7 +103,7 @@ jobs:
           $jsonLine = $output | Select-String -Pattern '^BENCH_JSON:(.+)$'
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### HNode perf baseline"
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value 'Track the **ratio** field over time (workload time / a fixed calibration workload'"'"'s time, both measured on this run) - it stays meaningful across different or noisy CI runners. The raw ms figures below are only meaningful when comparing runs on one fixed machine (e.g. locally).'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Track the **ratio** field over time (workload time divided by a fixed calibration workloads time, both measured on this run) - it stays meaningful across different or noisy CI runners. The raw ms figures below are only meaningful when comparing runs on one fixed machine (e.g. locally)."
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```json'
           if ($jsonLine) {

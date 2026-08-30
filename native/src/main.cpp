@@ -19,6 +19,8 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <string>
 
 #include "dmx/DmxBuffer.h"
@@ -32,6 +34,7 @@
 #include "ui/UiPanel.h"
 #include "ui/FileDialog.h"
 #include "ui/PerfStats.h"
+#include "ui/Toast.h"
 
 namespace {
 
@@ -54,9 +57,28 @@ bool TryParseConfigFileArg(const std::string& arg, std::string& outPath) {
     return true;
 }
 
+// State persistence across restarts (the old Unity app remembered the selected
+// serializer via PlayerPrefs - this does the equivalent for the whole show config):
+// auto-saved on exit, auto-loaded on the next startup unless a CLI --config-file=
+// was given, which always takes priority. %APPDATA% is used (not next to the exe)
+// since HNode.exe may be running from a read-only location (e.g. Program Files).
+std::string AutosavePath() {
+    const char* appData = std::getenv("APPDATA");
+    if (!appData || !*appData) return {};
+    std::filesystem::path dir = std::filesystem::path(appData) / "HNode";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec); // best-effort; Load/Save below will just fail harmlessly if this didn't work
+    return (dir / "autosave.shwcfg").string();
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    // Toasts aren't wired up yet this early (no ImGui context exists until after
+    // glfwInit()/window creation below), so a GLFW init-time error still has to go to
+    // stderr - that's fine, an error this early means the app never gets to a visible
+    // window at all anyway, unlike the Save/Load/CLI-load failures below which happen
+    // once the UI is already up and running.
     glfwSetErrorCallback([](int code, const char* desc) {
         std::fprintf(stderr, "GLFW error %d: %s\n", code, desc);
     });
@@ -78,6 +100,8 @@ int main(int argc, char** argv) {
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
+
+    ToastQueue toasts;
 
     SerializerRegistry serializerRegistry;
     ExporterRegistry exporterRegistry;
@@ -129,7 +153,9 @@ int main(int argc, char** argv) {
     int appliedArtNetPort = config.artNetPort;
     std::string appliedSpoutName = config.spoutOutputName;
 
-    // CLI config file passthrough (Loader.cs's ReadCLIConfigFile).
+    // CLI config file passthrough (Loader.cs's ReadCLIConfigFile) - takes priority
+    // over the autosave restore below if given.
+    bool cliConfigLoaded = false;
     for (int i = 1; i < argc; ++i) {
         std::string configPath;
         if (!TryParseConfigFileArg(argv[i], configPath)) continue;
@@ -141,10 +167,28 @@ int main(int argc, char** argv) {
             for (auto& generator : loaded.generators) generator->Construct();
             config = std::move(loaded);
             dirty.store(true);
+            cliConfigLoaded = true;
         } else {
-            std::fprintf(stderr, "Failed to load CLI config file '%s': %s\n", configPath.c_str(), error.c_str());
+            toasts.Push(ToastLevel::Error, "Failed to load CLI config file '" + configPath + "': " + error);
         }
         break;
+    }
+
+    // Restore state from the previous run (the old Unity app remembered the selected
+    // serializer via PlayerPrefs - this is the equivalent for the whole show config),
+    // unless a CLI config file was already loaded above.
+    const std::string autosavePath = AutosavePath();
+    if (!cliConfigLoaded && !autosavePath.empty() && std::filesystem::exists(autosavePath)) {
+        ShowConfig loaded;
+        std::string error;
+        if (ShowConfig::Load(autosavePath, loaded, serializerRegistry, exporterRegistry, generatorRegistry, error)) {
+            for (auto& exporter : loaded.exporters) exporter->Construct();
+            for (auto& generator : loaded.generators) generator->Construct();
+            config = std::move(loaded);
+            dirty.store(true);
+        } else {
+            toasts.Push(ToastLevel::Warning, "Could not restore last session: " + error);
+        }
     }
 
     while (!glfwWindowShouldClose(window)) {
@@ -183,7 +227,9 @@ int main(int argc, char** argv) {
             if (ShowSaveFileDialog(hwnd, "Show Configurations", "shwcfg", "NewShowConfig.shwcfg", path)) {
                 std::string error;
                 if (!config.Save(WideToNarrow(path), error)) {
-                    std::fprintf(stderr, "Save failed: %s\n", error.c_str());
+                    toasts.Push(ToastLevel::Error, "Save failed: " + error);
+                } else {
+                    toasts.Push(ToastLevel::Info, "Saved.", 2.5);
                 }
             }
         }
@@ -202,8 +248,9 @@ int main(int argc, char** argv) {
                     for (auto& generator : loaded.generators) generator->Construct();
                     config = std::move(loaded);
                     dirty.store(true);
+                    toasts.Push(ToastLevel::Info, "Loaded.", 2.5);
                 } else {
-                    std::fprintf(stderr, "Load failed: %s\n", error.c_str());
+                    toasts.Push(ToastLevel::Error, "Load failed: " + error);
                 }
             }
         }
@@ -284,6 +331,8 @@ int main(int argc, char** argv) {
             exporter->CompleteFrame(frameRenderer.MergedDmx());
         }
 
+        toasts.Draw();
+
         ImGui::Render();
         int displayW, displayH;
         glfwGetFramebufferSize(window, &displayW, &displayH);
@@ -293,6 +342,13 @@ int main(int argc, char** argv) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+    }
+
+    // Best-effort - a failed autosave on exit isn't worth surfacing to the user (no
+    // UI left to show a toast in at this point anyway).
+    if (!autosavePath.empty()) {
+        std::string error;
+        config.Save(autosavePath, error);
     }
 
     artnet.Stop();
