@@ -28,7 +28,7 @@ if errorlevel 1 (
 )
 
 set SOURCES=
-for %%D in (. artnet dmx serializers render spout config ui exporters generators) do (
+for %%D in (. artnet dmx serializers render spout config ui exporters generators generators\mavlink) do (
     for %%f in ("%ROOT%src\%%D\*.cpp") do set SOURCES=!SOURCES! "%%f"
 )
 

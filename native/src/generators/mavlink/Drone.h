@@ -22,8 +22,7 @@
 
 #include "Vec3.h"
 #include "../../render/PixelOps.h"
-
-struct mavlink_message_t; // forward-declared; full definition needed only in Drone.cpp
+#include "mavlink_all.h"
 
 class ShowFile; // Phase 2 - forward-declared, showFile_ stays null until implemented
 

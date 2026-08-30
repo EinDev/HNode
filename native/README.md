@@ -25,15 +25,26 @@ as before. This is an additional, independent app living alongside it.
 - All 7 serializers (`src/serializers`), selectable at runtime via `ISerializer` +
   `SerializerRegistry`: VRSL, Binary, ColorBinary, Ternary, Spiral, MDMX (aka
   BinaryStageFlight), FuralitySomna
-- 13 of the 14 generators (`src/generators`), as a dynamic add/remove list via
-  `IGenerator` + `GeneratorRegistry`: StaticValue, Remap, RemapOnDemand, Snapshot,
-  Fade, Strobe, DMXPacket, Text, Time, SRT, LRC, ASS, TwitchChat (anonymous read-only
-  IRC, hand-rolled against raw Winsock - no equivalent to the C# reference's
-  Lexone.UnityTwitchChat dependency), and OnTime (polls the local OnTime show-timer
-  app's HTTP API via WinHTTP from a background thread, unlike the C# reference's
-  blocking-per-frame HTTP call). Animated generators (Fade/Strobe/Time/SRT/LRC/ASS/
-  TwitchChat/OnTime) keep the render-on-change loop ticking at `targetFramerate` while
-  active instead of freezing when ArtNet goes idle - see `IGenerator.h`.
+- All 14 generators (`src/generators`), as a dynamic add/remove list via `IGenerator`
+  + `GeneratorRegistry`: StaticValue, Remap, RemapOnDemand, Snapshot, Fade, Strobe,
+  DMXPacket, Text, Time, SRT, LRC, ASS, TwitchChat (anonymous read-only IRC,
+  hand-rolled against raw Winsock - no equivalent to the C# reference's
+  Lexone.UnityTwitchChat dependency), OnTime (polls the local OnTime show-timer app's
+  HTTP API via WinHTTP from a background thread, unlike the C# reference's
+  blocking-per-frame HTTP call), and MAVLinkDroneNetwork (`src/generators/mavlink`) -
+  simulates a MAVLink drone-show network (Skybrush-server-style) over UDP: HEARTBEAT/
+  GPS/SYS_STATUS telemetry, capability/parameter/mission/FTP command handling, and
+  per-drone position (+ LED color or pyro state) packed into DMX. Uses the vendored
+  `mavlink/c_library_v2` headers (`third_party/mavlink`) instead of hand-rolling
+  packet framing/CRC tables - verified end-to-end against a real `pymavlink` client
+  (heartbeat, commands/ACK, capability negotiation, param set/read, and FTP with a
+  bit-exact CRC32 match). Show-file/trajectory/light-program/pyro playback (the
+  "FTP protocol, trajectories, show files" mini-project mentioned below) isn't
+  implemented yet - FTP uploads are accepted and buffered but not parsed, so drones
+  currently only report GPS-set positions, not scripted show trajectories. Animated
+  generators (Fade/Strobe/Time/SRT/LRC/ASS/TwitchChat/OnTime/MAVLinkDroneNetwork) keep
+  the render-on-change loop ticking at `targetFramerate` while active instead of
+  freezing when ArtNet goes idle - see `IGenerator.h`.
 - All 4 exporters (`src/exporters`), as a dynamic add/remove list via `IExporter` +
   `ExporterRegistry`: MIDIDMX (VRC-MIDIDMX protocol over winmm, replacing DryWetMidi),
   TextFileExporter, FrameSnapshotExporter (UDP JSON command -> PNG snapshot via
@@ -57,8 +68,11 @@ as before. This is an additional, independent app living alongside it.
 ## What's intentionally out of scope (not dropped by accident)
 - Spout **input** / deserialize (the `Transcode` path) - `DeserializeChannel` isn't
   implemented on any serializer
-- 1 generator: MAVLinkDrone (its own mini-project: FTP protocol, trajectories, show
-  files)
+- MAVLinkDroneNetwork's show-file playback: the FTP upload path, show-file container
+  parsing, trajectory (Bezier) decoding, light-program bytecode, and pyro event
+  decoding are all still unimplemented - see `src/generators/mavlink/Drone.h`'s
+  `showFile_` (always null for now). The MAVLink transport/telemetry/command layer
+  itself is implemented (see above).
 - The DMX preview/chroma-key window
 - FuralitySomnaSerializer's `mergedChannels` field has no UI and isn't persisted to
   YAML yet (config-only in the C# original too, just not wired up here)

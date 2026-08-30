@@ -13,11 +13,12 @@
 #include "AssGenerator.h"
 #include "TwitchChatGenerator.h"
 #include "OnTimeGenerator.h"
+#include "MAVLinkDroneNetworkGenerator.h"
 
 std::vector<std::string> GeneratorRegistry::Names() const {
-    return {"StaticValue", "Remap",      "RemapOnDemand", "Snapshot",   "Fade",
-            "Strobe",      "DMXPacket",  "Text",          "Time",       "SRT",
-            "LRC",         "ASS",        "TwitchChat",    "OnTime"};
+    return {"StaticValue", "Remap",   "RemapOnDemand", "Snapshot", "Fade",
+            "Strobe",      "DMXPacket", "Text",        "Time",     "SRT",
+            "LRC",         "ASS",     "TwitchChat",    "OnTime",   "MAVLinkDroneNetwork"};
 }
 
 std::unique_ptr<IGenerator> GeneratorRegistry::Create(const std::string& name) const {
@@ -35,5 +36,6 @@ std::unique_ptr<IGenerator> GeneratorRegistry::Create(const std::string& name) c
     if (name == "ASS") return std::make_unique<AssGenerator>();
     if (name == "TwitchChat") return std::make_unique<TwitchChatGenerator>();
     if (name == "OnTime") return std::make_unique<OnTimeGenerator>();
+    if (name == "MAVLinkDroneNetwork") return std::make_unique<MAVLinkDroneNetworkGenerator>();
     return nullptr;
 }

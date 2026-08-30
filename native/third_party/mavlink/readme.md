@@ -24,5 +24,14 @@ dependency, not an optional extra. `standard/mavlink.h` and `standard/version.h`
 aren't themselves included by anything here (only `standard/standard.h`, via that
 relative include) but are vendored alongside it for completeness/future updates.
 
+One more borrowed message: `common/mavlink_msg_led_control.h` was copied from the
+`ardupilotmega` dialect (upstream: `ardupilotmega/mavlink_msg_led_control.h`) -
+MAVLinkDroneNetworkGenerator needs LED_CONTROL (id 186) to detect a "flash" command,
+but that message isn't defined in `common`, `standard`, or `minimal` at all. Same
+self-contained-per-message-header property as the other 2 borrowed files, so it's
+just dropped into `common/` and `#include`d explicitly from `mavlink_all.h` (not part
+of `common.h`'s own include chain, unlike the `standard`-borrowed pair) - vendoring
+all of `ardupilotmega` (which is large) for one message wasn't worth it.
+
 To update: re-clone upstream, sparse-checkout `common` and `minimal`, copy over
 (minus `testsuite.h`), and update the commit hash above.
