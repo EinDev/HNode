@@ -1,0 +1,3 @@
+# vcpkg is bootstrapped fresh by build.bat / CI, not vendored.
+/vcpkg/
+/build/

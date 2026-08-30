@@ -1,0 +1,61 @@
+name: Native Build
+
+on:
+  push:
+    paths:
+      - "native/**"
+      - ".github/workflows/native.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - ".github/workflows/native.yml"
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows (native)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg
+        uses: actions/cache@v5
+        id: vcpkg-cache
+        with:
+          path: |
+            native/vcpkg/installed
+            native/vcpkg/downloads
+            native/vcpkg/packages
+          key: vcpkg-x64-windows-glfw3-imgui-yamlcpp-v1
+
+      - name: Clone vcpkg
+        # Only native/vcpkg/{installed,downloads,packages} are cached above, not the
+        # tool checkout itself, so this always runs - it's a shallow clone and cheap.
+        run: git clone --depth 1 https://github.com/microsoft/vcpkg.git native/vcpkg
+        shell: bash
+
+      - name: Bootstrap vcpkg
+        run: native\vcpkg\bootstrap-vcpkg.bat
+        shell: cmd
+
+      - name: Install dependencies
+        run: native\vcpkg\vcpkg.exe install glfw3 "imgui[core,glfw-binding,opengl3-binding]" yaml-cpp --triplet x64-windows --recurse
+        shell: cmd
+
+      - name: Build
+        run: native\build.bat
+        shell: cmd
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: HNode-native-windows
+          path: |
+            native/build/HNode.exe
+            native/build/*.dll
