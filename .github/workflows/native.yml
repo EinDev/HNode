@@ -36,9 +36,14 @@ jobs:
 
       - name: Clone vcpkg
         # Only native/vcpkg/{installed,downloads,packages} are cached above, not the
-        # tool checkout itself, so this always runs - it's a shallow clone and cheap.
-        run: git clone --depth 1 https://github.com/microsoft/vcpkg.git native/vcpkg
-        shell: bash
+        # tool checkout itself - but a cache hit still creates native/vcpkg (containing
+        # those subfolders), so `git clone` into it unconditionally fails with
+        # "destination path already exists". Guard on the tool checkout specifically.
+        run: |
+          if (-not (Test-Path "native/vcpkg/.git")) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git native/vcpkg
+          }
+        shell: pwsh
 
       - name: Bootstrap vcpkg
         run: native\vcpkg\bootstrap-vcpkg.bat
