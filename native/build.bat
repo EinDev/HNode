@@ -44,7 +44,7 @@ echo [build] Compiling...
 cl.exe /nologo /std:c++17 /EHsc /MD /W3 /O2 %DEFINES% %INCLUDES% ^
     !SOURCES! !SPOUT_SOURCES! ^
     /Fo"%BUILD_DIR%\\" /Fe"%BUILD_DIR%\HNode.exe" ^
-    /link %LIBPATH% %LIBS%
+    /link %LIBPATH% %LIBS% /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup
 
 if errorlevel 1 (
     echo [build] Build FAILED.
